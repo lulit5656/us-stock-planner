@@ -613,11 +613,24 @@ def make_hist(res, digits=2):
         tz = ZoneInfo(tz_name)
     except Exception:  # noqa: BLE001
         tz = timezone.utc
+    # 마지막 봉의 종가가 비어 있을 때(야후 일봉 지연) 현재가로 메우기
+    meta = res.get("meta") or {}
+    rmp, rmt = meta.get("regularMarketPrice"), meta.get("regularMarketTime")
+    live_day = None
+    if rmt:
+        try:
+            live_day = datetime.fromtimestamp(rmt, tz).strftime("%Y-%m-%d")
+        except Exception:  # noqa: BLE001
+            live_day = None
     for i, t in enumerate(ts):
         try:
             c = closes[i]
             if c is None:
-                continue
+                day = datetime.fromtimestamp(t, tz).strftime("%Y-%m-%d")
+                if i == len(ts) - 1 and rmp and (live_day is None or live_day == day):
+                    c = float(rmp)
+                else:
+                    continue
             o = opens[i] if i < len(opens) and opens[i] is not None else c
             h = highs[i] if i < len(highs) and highs[i] is not None else c
             l = lows[i] if i < len(lows) and lows[i] is not None else c
