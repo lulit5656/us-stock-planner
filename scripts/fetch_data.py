@@ -525,7 +525,9 @@ def formula_judge(d):
         {"key": "volume", "label": "거래량 2배↑(3일)", "ok": vol1, "detail": vol_detail},
         {"key": "candle", "label": "양봉 지지", "ok": bool(bong), "detail": f"오늘 {d.get('candle')}"},
         {"key": "hold", "label": "이탈 아님", "ok": not brk,
-         "detail": "200일선 위 유지" if not brk else "최근 3거래일 안에 200일선을 음봉으로 이탈"},
+         "detail": ("200일선 위 유지" if (not brk and above) else
+                    ("200일선 아래 — 200일선을 깬 음봉은 아님" if not brk else
+                     "최근 3거래일 안에 200일선을 음봉으로 이탈"))},
     ]
 
     # ---------------- 공식 ② 바닥 반등 단타
@@ -534,7 +536,7 @@ def formula_judge(d):
     hit2 = vol1
     vol2_ok = bool(vol1 or vol_near)
     cnt = sum([below, rsi_ok, bb_ok, hit2])
-    bb_detail = (f"%B {pctb} · 하단 {bb_lo}" if pctb is not None and bb_lo else "볼린저 데이터 부족")
+    bb_detail = (f"%B {pctb} · 하단 {bb_lo:,.2f}" if pctb is not None and bb_lo else "볼린저 데이터 부족")
     rsi_detail = (f"RSI {rsi} — 38 이하" if rsi_ok else f"RSI {rsi if rsi is not None else '–'} — 38 초과") \
         if rsi is not None else "RSI 계산 불가"
     if below and rsi_ok and bb_ok and hit2:
