@@ -292,6 +292,8 @@
       html = viewStock(r.arg);
     } else if (state.view === 'screen') {
       html = viewScreen();
+    } else if (state.view === 'spike') {
+      html = viewSpike();
     } else if (state.view === 'watch') {
       html = viewWatch();
     } else if (state.view === 'info') {
@@ -342,13 +344,15 @@
 
     const upN = list.filter((s) => s.change_pct > 0).length;
     const downN = list.filter((s) => s.change_pct < 0).length;
+    const spikes = list.filter((s) => s.vol_spike).length;
+    const warns = list.filter((s) => s.fake_rally_warn).length;
     const topS = list.slice().sort((a, b) => b.change_pct - a.change_pct)[0];
     const summary =
       '<div class="card" style="padding:12px 14px">' +
         '<div style="font-size:13.5px;font-weight:700;letter-spacing:-.2px">' +
           (hot ? hot.emoji + ' 오늘 ' + (state.market === 'us' ? '미장' : '국장') + '은 <span class="' + pctCls(hot.avg_change) + '">' + esc(hot.name) + ' ' + pct(hot.avg_change) + '</span>이 이끌었어요' : '테마 데이터 준비 중') +
         '</div>' +
-        '<div class="hint" style="margin-top:3px">상승 ' + upN + ' · 하락 ' + downN + ' · 골든존 ' + gz + '개' +
+        '<div class="hint" style="margin-top:3px">상승 ' + upN + ' · 하락 ' + downN + ' · 골든존 ' + gz + '개 · 거래량 2배↑ ' + spikes + '개' +
           (topS ? ' · 1위 ' + esc(topS.name) + ' ' + pct(topS.change_pct) : '') + '</div>' +
       '</div>';
 
@@ -363,6 +367,11 @@
         card('⭐ 관심종목', watched.length + '개 담김',
              watched.length ? watched[0].name + ' ' + pct(watched[0].change_pct) : '별을 눌러 담아두세요',
              href(state.market, 'watch')) +
+        '<button class="alertcard" data-go="' + href(state.market, 'spike') + '">' +
+          '<div class="ac-l"><b>🔥 거래량 급증 ' + spikes + '개</b>' +
+            '<span>20일 평균 2배 이상 · ' + (warns ? '매물 출회·자금유입 경고 ' + warns + '개' : '경고 없음') + '</span></div>' +
+          '<span class="chev">›</span>' +
+        '</button>' +
       '</div>';
 
     const rows = themes.map((t) => {
@@ -393,6 +402,9 @@
         '<h3>📌 이 화면 쓰는 법</h3>' +
         '<div class="kv"><span class="k">골든존</span><span class="v">200일선 ±3% 또는 RSI 35~45 눌림</span></div>' +
         '<div class="kv"><span class="k">4중 필터</span><span class="v">추세 · RSI · 거래량/양봉 · 손익비</span></div>' +
+        '<div class="kv"><span class="k">볼린저밴드</span><span class="v">20일선 ±2표준편차 (상단 돌파=과열, 하단 근접=반등 자리)</span></div>' +
+        '<div class="kv"><span class="k">거래량 배수</span><span class="v">20일 평균 대비 · 2배 이상이면 🔥 급증</span></div>' +
+        '<div class="kv"><span class="k">경고</span><span class="v">윗꼬리 + 거래량 = 매물 출회 의심 · CMF 음수 = 자금유입 약함</span></div>' +
         '<div class="kv"><span class="k">데이터</span><span class="v">' + esc(meta.delay_note) + '</span></div>' +
         '<div style="margin-top:10px"><button class="chip" data-go="' + href(state.market, 'info') + '">자세한 안내 · 한계 보기 →</button></div>' +
       '</div>';
@@ -444,6 +456,43 @@
     return html;
   }
 
+  /* 종목 상세 상단 태그 */
+  function detailTags(s) {
+    const out = [];
+    if (s.rsi_state && s.rsi_state_key && s.rsi_state_key !== 'na') {
+      out.push('<span class="tag rsi ' + s.rsi_state_key + '">RSI ' + (s.rsi14 == null ? '–' : s.rsi14) +
+        ' · ' + esc(s.rsi_state) + '</span>');
+    }
+    if (s.vol_spike && s.vol_ratio != null) {
+      out.push('<span class="tag vol">🔥 거래량 ' + s.vol_ratio + '배</span>');
+    }
+    (s.fake_rally_reasons || []).forEach((r) => {
+      out.push('<span class="tag warn">⚠️ ' + esc(r.label) + '</span>');
+    });
+    if (s.bb_pos_key === 'hot') out.push('<span class="tag bbhot">📈 ' + esc(s.bb_pos) + '</span>');
+    else if (s.bb_pos_key === 'cold') out.push('<span class="tag bbcold">📉 ' + esc(s.bb_pos) + '</span>');
+    return out.join('');
+  }
+
+  /* 리스트용 배지: RSI 상태 · 거래량 2배↑ · 가짜 상승 경고 · 볼린저 극단 */
+  function stockBadges(s) {
+    const out = [];
+    if (s.rsi_state && s.rsi_state_key && s.rsi_state_key !== 'na') {
+      out.push('<span class="chip rsi ' + s.rsi_state_key + '" title="RSI(14) ' +
+        (s.rsi14 == null ? '–' : s.rsi14) + ' · ' + esc(s.rsi_state) + '">RSI ' + esc(s.rsi_state) + '</span>');
+    }
+    if (s.vol_spike && s.vol_ratio != null) {
+      out.push('<span class="chip vol" title="오늘 거래량이 20일 평균의 ' + s.vol_ratio + '배">🔥 거래량 ' + s.vol_ratio + '배</span>');
+    }
+    (s.fake_rally_reasons || []).forEach((r) => {
+      out.push('<span class="chip warn" title="' + esc(r.detail) + '">⚠️ ' + esc(r.label) + '</span>');
+    });
+    if (s.bb_pos_key === 'hot') {
+      out.push('<span class="chip bbhot" title="볼린저 상단(' + (s.bb_upper == null ? '–' : s.bb_upper) + ') 위 — 단기 과열">📈 볼린저 상단</span>');
+    }
+    return out.length ? '<div class="rbadges">' + out.join('') + '</div>' : '';
+  }
+
   function rowHtml(s, opt) {
     const role = opt && opt.role;
     const dots = (s.filters || []).map((f) => '<span class="mdot ' + (f.ok ? 'on' : '') + '"></span>').join('');
@@ -453,6 +502,7 @@
           esc(s.name) + ' <span class="mini-dots">' + dots + '</span></div>' +
         '<div class="n2">' + esc(s.symbol) +
           (s.golden_zone ? ' · <span style="color:#b45309;font-weight:700">골든존</span>' : '') + '</div>' +
+        stockBadges(s) +
       '</div>' +
       '<div class="rprice">' +
         '<div class="p1">' + money(s.price, s.currency || (state.market === 'kr' ? 'KRW' : 'USD')) + '</div>' +
@@ -489,13 +539,66 @@
             ' <span class="chip ' + s.tone + '">' + s.filter_count + '/4</span>' +
             (s.golden_zone ? ' <span class="chip gz">골든존</span>' : '') + '</div>' +
             '<div class="n2">' + esc(s.symbol) + ' · RSI ' + (s.rsi14 == null ? '–' : s.rsi14) +
-            ' · 200일선 ' + (s.ma200_dist_pct == null ? '–' : (s.ma200_dist_pct > 0 ? '+' : '') + s.ma200_dist_pct + '%') + '</div></div>' +
+            ' · 200일선 ' + (s.ma200_dist_pct == null ? '–' : (s.ma200_dist_pct > 0 ? '+' : '') + s.ma200_dist_pct + '%') + '</div>' +
+            stockBadges(s) + '</div>' +
           '<div class="rprice"><div class="p1">' + money(s.price, s.currency) + '</div>' +
           '<div class="p2 ' + pctCls(s.change_pct) + '">' + pct(s.change_pct) + '</div></div></button>').join('') + '</div>';
     }
 
     html += '<div class="sec-title"><h2>🟡 골든존 종목</h2><small>' + gz.length + '개</small></div>' +
       (gz.length ? '<div class="card">' + gz.map((s) => rowHtml(s)).join('') + '</div>' : '<div class="empty">골든존 종목이 없습니다.</div>');
+    return html;
+  }
+
+  /* ---------------------------------------------------------------- spike */
+  function viewSpike() {
+    const m = marketOf(state.market);
+    const list = Object.keys(m.stocks).map((k) => m.stocks[k]);
+    const spikes = list.filter((s) => s.vol_spike)
+      .sort((a, b) => (b.vol_ratio || 0) - (a.vol_ratio || 0));
+    const warns = list.filter((s) => s.fake_rally_warn)
+      .sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct));
+    const hotBb = list.filter((s) => s.bb_pos_key === 'hot').length;
+    const coldBb = list.filter((s) => s.bb_pos_key === 'cold').length;
+
+    let html = '<div class="pagehead"><button class="backbtn" data-go="' + href(state.market, 'home') + '">‹</button>' +
+      '<div><h2>🔥 거래량 · 경고 모아보기</h2><div class="ph-sub">' +
+      (state.market === 'us' ? '미국장' : '국장') + ' · 2배↑ ' + spikes.length + '개 · 경고 ' + warns.length + '개</div></div></div>';
+
+    html += '<div class="card"><h3>이 화면 보는 법</h3>' +
+      '<div class="hint" style="margin-top:6px">' +
+        '<b>🔥 거래량 2배↑</b> — 20일 평균보다 두 배 넘게 터진 날. 뉴스·실적이나 큰 손이 들어왔다는 신호입니다. ' +
+        '양봉에 거래량이 붙으면 힘이 실린 것이고, 음봉에 터지면 던지는 물량일 수 있습니다.<br><br>' +
+        '<b>⚠️ 매물 출회 의심</b> — 양봉이지만 윗꼬리가 몸통보다 길고 거래량도 많은 모양. 장중에 올랐다가 파는 물량에 밀렸다는 뜻입니다.<br><br>' +
+        '<b>⚠️ 자금유입 약함</b> — 가격은 올랐는데 자금흐름(CMF)이 마이너스. 오르는 것처럼 보이지만 실제로는 파는 힘이 더 큰 상태입니다.<br><br>' +
+        '<b>📈📉 볼린저</b> — 20일선 ±2표준편차 밴드. 상단을 뚫으면 단기 과열(추격 주의), ' +
+        '하단에 붙으면 반등을 노려볼 자리입니다.</div>' +
+      '<div class="kv" style="margin-top:8px"><span class="k">볼린저 상단 돌파 과열</span><span class="v">' + hotBb + '개</span></div>' +
+      '<div class="kv"><span class="k">볼린저 하단 근접 반등</span><span class="v">' + coldBb + '개</span></div>' +
+    '</div>';
+
+    html += '<div class="sec-title"><h2>🔥 거래량 급증</h2><small>' + spikes.length + '종목 · 배수순</small></div>';
+    html += spikes.length
+      ? '<div class="card">' + spikes.map((s) => rowHtml(s)).join('') + '</div>'
+      : '<div class="empty">오늘 20일 평균 2배 이상 터진 종목이 없습니다.</div>';
+
+    html += '<div class="sec-title"><h2>⚠️ 가짜 상승 경고</h2><small>' + warns.length + '종목</small></div>';
+    if (warns.length) {
+      html += '<div class="card">' + warns.map((s) => {
+        return '<button class="row warnrow" style="width:100%;text-align:left" data-go="' + href(state.market, 'stock', s.symbol) + '">' +
+          '<div class="rname"><div class="n1">' + esc(s.name) +
+            ' <span class="chip ' + s.tone + '">' + s.filter_count + '/4</span></div>' +
+            '<div class="n2">' + esc(s.symbol) + ' · RSI ' + (s.rsi14 == null ? '–' : s.rsi14) +
+              ' · 5일 ' + (s.chg5 == null ? '–' : (s.chg5 > 0 ? '+' : '') + s.chg5 + '%') + '</div>' +
+            (s.fake_rally_reasons || []).map((r) =>
+              '<div class="warnline">⚠️ <b>' + esc(r.label) + '</b> — ' + esc(r.detail) + '</div>').join('') +
+          '</div>' +
+          '<div class="rprice"><div class="p1">' + money(s.price, s.currency) + '</div>' +
+          '<div class="p2 ' + pctCls(s.change_pct) + '">' + pct(s.change_pct) + '</div></div></button>';
+      }).join('') + '</div>';
+    } else {
+      html += '<div class="empty">오늘은 가짜 상승 경고에 걸린 종목이 없습니다.</div>';
+    }
     return html;
   }
 
@@ -543,12 +646,21 @@
       '<div class="sh-tags">' + (s.themes || []).map((t) =>
         '<span class="tag" data-go="' + href(s.market, 'theme', t.id) + '">' + t.emoji + ' ' + esc(t.name) + ' · ' + esc(t.role) + '</span>').join('') +
         (s.golden_zone ? '<span class="tag" style="background:#fff7e6;color:#b45309">🟡 골든존</span>' : '') +
+        detailTags(s) +
       '</div>' +
       '<div class="range52"><div class="lbl"><span>52주 최저 ' + money(s.low52, cur) + '</span><span>52주 최고 ' + money(s.high52, cur) + '</span></div>' +
         '<div class="bar"><span class="mark" style="left:' + pos + '%"></span></div>' +
         '<div class="lbl"><span>현재 위치 ' + (s.pos52 == null ? '–' : s.pos52 + '%') + '</span><span>오늘 ' + money(s.day_low, cur) + ' ~ ' + money(s.day_high, cur) + '</span></div>' +
       '</div>' +
     '</div>';
+
+    if (s.fake_rally_warn) {
+      html += '<div class="warnbox">' +
+        '<div class="wb-t">⚠️ 가짜 상승 주의 — 지금 모양 그대로 따라 사면 위험할 수 있어요</div>' +
+        (s.fake_rally_reasons || []).map((r) =>
+          '<div class="wb-r"><b>' + esc(r.label) + '</b> ' + esc(r.detail) + '</div>').join('') +
+      '</div>';
+    }
 
     // 회사 설명
     html += '<div class="card"><h3>🏢 뭐 하는 회사인가요?</h3>' +
@@ -564,11 +676,13 @@
         '<div class="toggles">' +
           '<button class="tg on" data-tg="ma">200일선</button>' +
           '<button class="tg on" data-tg="zone">골든존</button>' +
+          '<button class="tg bb' + (chartState.bb ? ' on' : '') + '" data-tg="bb">볼린저밴드</button>' +
         '</div>' +
       '</div>' +
       '<div id="chart"></div>' +
       '<div class="legend" id="chartLegend">불러오는 중…</div>' +
-      '<div class="chart-note">🟠 200일선(골든선) · 🟡 골든존 = 200일선 ±3% 밴드. 주봉은 200일선을 40주선으로 환산해 표시합니다.</div>' +
+      '<div class="chart-note">🟠 200일선(골든선) · 🟡 골든존 = 200일선 ±3% 밴드 · 🟣 볼린저밴드 = 20일선 ±2표준편차 · ' +
+        '아래 거래량 막대는 <b style="color:#f97316">주황색</b>이면 20일 평균 2배 이상 급증한 날입니다. 주봉은 200일선을 40주선으로 환산합니다.</div>' +
     '</div>';
 
     // 4중 필터
@@ -580,6 +694,32 @@
         '<div class="filter-row"><span class="fmark ' + (f.ok ? 'ok' : 'no') + '">' + (f.ok ? '✓' : '·') + '</span>' +
         '<div class="ftext"><b>' + esc(f.label) + '</b><div class="d">' + esc(f.detail) + '</div></div></div>').join('') +
       '<div class="hint" style="margin-top:8px">' + esc(s.golden_note || '') + '</div>' +
+    '</div>';
+
+    // 볼린저밴드 · 거래량 · 자금흐름
+    const cmfV = s.cmf20;
+    const cmfTxt = cmfV == null ? '–' : (cmfV > 0 ? '+' : '') + cmfV.toFixed(2) +
+      (cmfV >= 0.05 ? ' (자금 유입 우위)' : cmfV <= -0.05 ? ' (자금 유출 우위)' : ' (중립)');
+    const cmfCls = cmfV == null ? 'flat' : (cmfV >= 0.05 ? 'up' : cmfV <= -0.05 ? 'down' : 'flat');
+    html += '<div class="card"><h3>📊 볼린저밴드 · 거래량 · 자금흐름</h3>' +
+      '<div class="kv"><span class="k">볼린저밴드 위치</span><span class="v"><span class="chip bb' +
+        (s.bb_pos_key || 'na') + '">' + esc(s.bb_pos || '–') + '</span></span></div>' +
+      '<div class="kv"><span class="k">상단 / 중심 / 하단</span><span class="v">' +
+        money(s.bb_upper, cur) + ' / ' + money(s.bb_mid, cur) + ' / ' + money(s.bb_lower, cur) + '</span></div>' +
+      '<div class="kv"><span class="k">밴드 안 위치(%B)</span><span class="v">' +
+        (s.bb_pct_b == null ? '–' : s.bb_pct_b + '%') + '</span></div>' +
+      '<div class="kv"><span class="k">오늘 거래량 / 20일 평균</span><span class="v">' +
+        (s.vol_ratio == null ? '–' : s.vol_ratio + '배') + (s.vol_spike ? ' 🔥 급증' : '') + '</span></div>' +
+      '<div class="kv"><span class="k">20일 평균 거래량</span><span class="v">' +
+        (s.vol_avg20 ? compact(s.vol_avg20) + '주' : '–') + '</span></div>' +
+      '<div class="kv"><span class="k">CMF (20일 자금흐름)</span><span class="v ' + cmfCls + '">' + esc(cmfTxt) + '</span></div>' +
+      '<div class="kv"><span class="k">최근 5일 등락</span><span class="v ' + pctCls(s.chg5) + '">' +
+        (s.chg5 == null ? '–' : (s.chg5 > 0 ? '+' : '') + s.chg5 + '%') + '</span></div>' +
+      '<div class="hint" style="margin-top:8px;line-height:1.6">' +
+        '볼린저밴드 = 20일선 ±2표준편차. 종가가 <b>상단 위</b>면 단기 과열(추격보다 눌림 대기), ' +
+        '<b>하단 근처</b>면 반등을 노려볼 자리이지만 하락 추세면 떨어지는 칼날일 수 있어요. ' +
+        'CMF는 -1~+1로, 마이너스면 파는 힘이 더 크다는 뜻입니다.' +
+      '</div>' +
     '</div>';
 
     // 월가 전망
@@ -658,6 +798,9 @@
       '<div class="kv"><span class="k">200일선</span><span class="v">일봉 종가 200개 단순평균</span></div>' +
       '<div class="kv"><span class="k">골든존</span><span class="v">200일선 ±3% 또는 RSI 35~45 & 200일선 위</span></div>' +
       '<div class="kv"><span class="k">4중 필터</span><span class="v">추세 · RSI · 거래량/양봉 · 손익비</span></div>' +
+      '<div class="kv"><span class="k">볼린저밴드</span><span class="v">20일 단순평균 ±2표준편차(모집단)</span></div>' +
+      '<div class="kv"><span class="k">거래량 배수</span><span class="v">오늘 거래량 ÷ 직전 20일 평균 · 2배 이상 = 급증</span></div>' +
+      '<div class="kv"><span class="k">CMF(20일)</span><span class="v">자금흐름 합 ÷ 거래량 합 · -1~+1</span></div>' +
       '<div class="kv"><span class="k">목표가</span><span class="v">야후 집계 애널리스트 평균 (없으면 표기 안 함)</span></div>' +
       '<div class="kv"><span class="k">손익비 규칙</span><span class="v">손절 -3.5% · 1차 +4.5% · 2차 +9%</span></div>' +
       '</div>' +
@@ -666,6 +809,8 @@
       '· 애널리스트 목표가는 과거 실적·전망이 섞인 값이라 미래 가격을 보장하지 않습니다.<br>' +
       '· 국장 중소형주는 목표가 집계가 없어 차트와 4중 필터로만 판단합니다.<br>' +
       '· 거래량·수급 필터는 기관·외국인 수급 원자료가 아니라 거래량 비율로 대신합니다.<br>' +
+      '· CMF는 종가 위치와 거래량만 보는 근사치라 실제 매수·매도 주체를 구분하지 못합니다(무료 데이터 한계).<br>' +
+      '· 볼린저밴드는 20일 기준이라 급락·급등 직후에는 밴드가 비정상적으로 벌어질 수 있습니다.<br>' +
       '· 프리장·애프터장 가격은 종목에 따라 비어 있을 수 있습니다.' +
       '</div></div>' +
       '<div class="card"><h3>면책</h3><div class="hint">' + esc(meta.disclaimer) + '</div></div>' +
@@ -673,7 +818,54 @@
   }
 
   /* ---------------------------------------------------------------- chart */
-  const chartState = { mode: 'day', ma: true, zone: true, sym: null };
+  const chartState = { mode: 'day', ma: true, zone: true, bb: false, sym: null };
+
+  /* 볼린저밴드 (20일 · ±2 표준편차) — 차트용 포인트 */
+  function bollingerPoints(candles, n, k) {
+    const up = [];
+    const mid = [];
+    const lo = [];
+    let s = 0;
+    let s2 = 0;
+    for (let i = 0; i < candles.length; i++) {
+      const c = candles[i].close;
+      s += c;
+      s2 += c * c;
+      if (i >= n) { const o = candles[i - n].close; s -= o; s2 -= o * o; }
+      if (i >= n - 1) {
+        const m = s / n;
+        const sd = Math.sqrt(Math.max(0, s2 / n - m * m));
+        up.push({ time: candles[i].time, value: +(m + k * sd).toFixed(4) });
+        mid.push({ time: candles[i].time, value: +m.toFixed(4) });
+        lo.push({ time: candles[i].time, value: +(m - k * sd).toFixed(4) });
+      }
+    }
+    return { up, mid, lo };
+  }
+
+  /* 거래량 막대 + 20일 평균선 (2배 이상 급증한 날은 강조색) */
+  function volumePoints(candles) {
+    const bars = [];
+    const avgLine = [];
+    const ratios = {};
+    for (let i = 0; i < candles.length; i++) {
+      const v = candles[i].volume || 0;
+      const from = Math.max(0, i - 20);
+      let sum = 0;
+      let cnt = 0;
+      for (let j = from; j < i; j++) { sum += candles[j].volume || 0; cnt++; }
+      const avg = cnt ? sum / cnt : null;
+      const spike = cnt >= 20 && avg > 0 && v / avg >= 2;
+      if (cnt >= 20 && avg > 0) ratios[candles[i].time] = +(v / avg).toFixed(1);
+      bars.push({
+        time: candles[i].time,
+        value: v,
+        color: spike ? '#f97316' : (candles[i].close >= candles[i].open ? 'rgba(224,52,43,.30)' : 'rgba(22,115,230,.26)'),
+      });
+      if (cnt >= 20 && avg > 0) avgLine.push({ time: candles[i].time, value: +avg.toFixed(0) });
+    }
+    return { bars, avgLine, ratios };
+  }
 
   function smaPoints(candles, n) {
     const out = [];
@@ -692,17 +884,20 @@
     if (!h || !h.t || !h.t.length) return null;
     const candles = [];
     for (let i = 0; i < h.t.length; i++) {
-      candles.push({ time: h.t[i], open: h.o[i], high: h.h[i], low: h.l[i], close: h.c[i] });
+      candles.push({ time: h.t[i], open: h.o[i], high: h.h[i], low: h.l[i], close: h.c[i], volume: (h.v || [])[i] || 0 });
     }
     const isWeek = chartState.mode === 'week';
     const n200 = isWeek ? 40 : 200;
     const n20 = isWeek ? 10 : 20;
     const n60 = isWeek ? 30 : 60;
+    const bb = bollingerPoints(candles, 20, 2);
     return {
       candles,
       ma200: smaPoints(candles, n200),
       ma20: smaPoints(candles, n20),
       ma60: smaPoints(candles, n60),
+      bb,
+      vol: volumePoints(candles),
       isWeek,
       cur: hist.currency || 'USD',
     };
@@ -737,10 +932,10 @@
 
     const chart = elf.createChart(el, {
       width: el.clientWidth || 320,
-      height: 270,
+      height: 320,
       layout: { background: { type: 'solid', color: '#ffffff' }, textColor: '#8b93a1', fontSize: 10, fontFamily: 'inherit' },
       grid: { vertLines: { color: '#f4f5f7' }, horzLines: { color: '#f4f5f7' } },
-      rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.08 } },
+      rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.24 } },
       timeScale: { borderVisible: false, rightOffset: 4, fixLeftEdge: true },
       crosshair: {
         mode: elf.CrosshairMode.Normal,
@@ -752,6 +947,21 @@
     state.chart = chart;
 
     const pf = { type: 'price', precision: isKR ? 0 : 2, minMove: isKR ? 1 : 0.01 };
+
+    // 거래량 (하단 22%) — 20일 평균 2배 이상은 주황색 강조
+    const volBar = chart.addHistogramSeries({
+      priceFormat: { type: 'volume' }, priceScaleId: '', priceLineVisible: false, lastValueVisible: false,
+    });
+    volBar.priceScale().applyOptions({ scaleMargins: { top: 0.78, bottom: 0 } });
+    volBar.setData(S.vol.bars);
+    const volAvg = chart.addLineSeries({
+      color: 'rgba(17,24,39,.35)', lineWidth: 1, lineStyle: 2, priceScaleId: '',
+      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      priceFormat: { type: 'volume' },
+    });
+    volAvg.priceScale().applyOptions({ scaleMargins: { top: 0.78, bottom: 0 } });
+    volAvg.setData(S.vol.avgLine);
+
     const candle = chart.addCandlestickSeries({
       upColor: state.colorUp, downColor: state.colorDown,
       borderUpColor: state.colorUp, borderDownColor: state.colorDown,
@@ -760,10 +970,23 @@
     });
     candle.setData(S.candles);
 
-    const ma20 = chart.addLineSeries({ color: '#b7bec9', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: pf });
-    ma20.setData(S.ma20);
+    let ma20 = null;
+    if (!chartState.bb) {              /* 볼린저 중심선이 20일선이라 중복 시 생략 */
+      ma20 = chart.addLineSeries({ color: '#b7bec9', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: pf });
+      ma20.setData(S.ma20);
+    }
     const ma60 = chart.addLineSeries({ color: '#a78bfa', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: pf });
     ma60.setData(S.ma60);
+
+    // 볼린저밴드 토글
+    if (chartState.bb && S.bb.up.length) {
+      const bbUp = chart.addLineSeries({ color: '#a855f7', lineWidth: 1, lineStyle: 2, title: '볼린저 상단', priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false, priceFormat: pf });
+      bbUp.setData(S.bb.up);
+      const bbMid = chart.addLineSeries({ color: '#7c3aed', lineWidth: 1, title: '중심(20일선)', priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: pf });
+      bbMid.setData(S.bb.mid);
+      const bbLo = chart.addLineSeries({ color: '#a855f7', lineWidth: 1, lineStyle: 2, title: '볼린저 하단', priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false, priceFormat: pf });
+      bbLo.setData(S.bb.lo);
+    }
 
     let ma200 = null;
     let zUp = null;
@@ -791,12 +1014,17 @@
       if (!c) {
         const last = S.candles[S.candles.length - 1];
         const m = S.ma200.length ? S.ma200[S.ma200.length - 1].value : null;
+        const bbU = S.bb.up.length ? S.bb.up[S.bb.up.length - 1].value : null;
+        const bbL = S.bb.lo.length ? S.bb.lo[S.bb.lo.length - 1].value : null;
         legend.innerHTML = esc(S.isWeek ? '주봉' : '일봉') + ' 종가 <b>' + axisMoney(last.close, cur) + '</b>' +
-          (m ? ' · 200일선 <b style="color:#b45309">' + axisMoney(m, cur) + '</b>' : '');
+          (m ? ' · 200일선 <b style="color:#b45309">' + axisMoney(m, cur) + '</b>' : '') +
+          (chartState.bb && bbU != null ? ' · 볼린저 <b style="color:#7c3aed">' + axisMoney(bbL, cur) + '~' + axisMoney(bbU, cur) + '</b>' : '');
         return;
       }
+      const r = S.vol.ratios[c.time];
       legend.innerHTML = esc(c.time) + '  시 ' + axisMoney(c.open, cur) + ' · 고 ' + axisMoney(c.high, cur) +
-        ' · 저 ' + axisMoney(c.low, cur) + ' · 종 <b>' + axisMoney(c.close, cur) + '</b>';
+        ' · 저 ' + axisMoney(c.low, cur) + ' · 종 <b>' + axisMoney(c.close, cur) + '</b>' +
+        (r ? ' · 거래량 <b' + (r >= 2 ? ' style="color:#f97316"' : '') + '>' + r + '배</b>' : '');
     };
     chart.subscribeCrosshairMove((param) => {
       if (!param || !param.time || !param.seriesData) { setLegend(null); return; }

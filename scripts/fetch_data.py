@@ -147,6 +147,91 @@ def sma(vals, n):
     return sum(vals[-n:]) / n
 
 
+def sma_series(vals, n):
+    """각 시점의 n개 단순이동평균. 앞쪽 n-1개는 None."""
+    out = []
+    s = 0.0
+    for i, v in enumerate(vals):
+        s += v
+        if i >= n:
+            s -= vals[i - n]
+        out.append(round(s / n, 6) if i >= n - 1 else None)
+    return out
+
+
+def stdev_series(vals, n):
+    """각 시점 n개 표준편차(모집단). 앞쪽 n-1개는 None."""
+    out = []
+    for i in range(len(vals)):
+        if i < n - 1:
+            out.append(None)
+            continue
+        w = vals[i - n + 1:i + 1]
+        m = sum(w) / n
+        out.append(math.sqrt(sum((x - m) ** 2 for x in w) / n))
+    return out
+
+
+def bollinger_series(closes, n=20, k=2.0):
+    """볼린저밴드(20일 · ±2 표준편차)."""
+    mid = sma_series(closes, n)
+    sd = stdev_series(closes, n)
+    up, lo = [], []
+    for m, s in zip(mid, sd):
+        if m is None or s is None:
+            up.append(None)
+            lo.append(None)
+        else:
+            up.append(m + k * s)
+            lo.append(m - k * s)
+    return {"mid": mid, "upper": up, "lower": lo}
+
+
+def cmf(highs, lows, closes, vols, n=20):
+    """차이킨 자금흐름(CMF, n일). -1~+1, 음수면 매도 압력 우위."""
+    if len(closes) < n:
+        return None
+    mfv = []
+    for i in range(len(closes)):
+        h, l, c, v = highs[i], lows[i], closes[i], vols[i] or 0
+        if h is None or l is None or c is None:
+            mfv.append(0.0)
+            continue
+        rng = h - l
+        mfm = 0.0 if rng <= 0 else ((c - l) - (h - c)) / rng
+        mfv.append(mfm * v)
+    win_v = sum((vols[i] or 0) for i in range(len(vols) - n, len(vols)))
+    if win_v <= 0:
+        return None
+    win_mfv = sum(mfv[len(mfv) - n:])
+    return win_mfv / win_v
+
+
+def rsi_state_of(rsi):
+    """RSI 상태 배지 — 35 이하 과매도 반등권 / 35~45 눌림목 / 70 이상 과열."""
+    if rsi is None:
+        return "–", "na"
+    if rsi <= 35:
+        return "과매도 반등권", "oversold"
+    if rsi <= 45:
+        return "눌림목", "dip"
+    if rsi >= 70:
+        return "과열", "hot"
+    return "중립", "neutral"
+
+
+def bb_state_of(price, upper, lower):
+    """최신 종가의 볼린저밴드 위치."""
+    if not upper or not lower or upper <= lower:
+        return "–", "na", None
+    pct_b = (price - lower) / (upper - lower) * 100.0
+    if price >= upper:
+        return "상단 돌파 과열", "hot", pct_b
+    if price <= lower * 1.02:
+        return "하단 근접 반등", "cold", pct_b
+    return "밴드 내", "mid", pct_b
+
+
 def rsi_wilder(closes, period=14):
     if len(closes) < period + 1:
         return None
@@ -183,6 +268,40 @@ def build_indicators(closes, highs, lows, vols, opens):
     prev_vol = vols[-21:-1] if len(vols) >= 21 else vols[:-1]
     avg_vol = sum(prev_vol) / len(prev_vol) if prev_vol else None
     vol_ratio = (vols[-1] / avg_vol) if avg_vol and vols and vols[-1] is not None else None
+
+    # 볼린저밴드 (20일 ±2 표준편차)
+    bb = bollinger_series(closes, 20, 2.0)
+    bb_up, bb_mid, bb_lo = bb["upper"][-1], bb["mid"][-1], bb["lower"][-1]
+    bb_pos, bb_key, bb_pct_b = bb_state_of(price, bb_up, bb_lo)
+
+    # 차이킨 자금흐름 (20일)
+    cmf20 = cmf(highs, lows, closes, vols, 20)
+
+    # 가짜 상승 경고: 윗꼬리 + 거래량, 또는 5일 상승 + CMF 음수
+    reasons = []
+    body = (closes[-1] - opens[-1]) if opens else 0.0
+    upper_wick = (highs[-1] - closes[-1]) if highs else 0.0
+    wick_ratio = (upper_wick / body) if body > 0 else None
+    if body > 0 and wick_ratio is not None and wick_ratio > 1.2 and vol_ratio is not None and vol_ratio >= 1.5:
+        reasons.append({
+            "key": "upper_wick",
+            "label": "매물 출회 의심",
+            "detail": (f"양봉이지만 윗꼬리가 몸통의 {wick_ratio:.1f}배 · 거래량 20일 평균의 {vol_ratio:.1f}배 "
+                       "— 위에서 파는 물량이 나온 모양"),
+        })
+    chg5 = None
+    if len(closes) >= 6 and closes[-6]:
+        chg5 = (closes[-1] / closes[-6] - 1) * 100.0
+    if chg5 is not None and chg5 > 0 and cmf20 is not None and cmf20 < -0.05:
+        reasons.append({
+            "key": "cmf",
+            "label": "자금유입 약함",
+            "detail": (f"최근 5일 {chg5:+.1f}% 올랐지만 CMF(20일) {cmf20:.2f} — "
+                       "가격은 올라도 자금은 빠지는 중"),
+        })
+
+    rsi_txt, rsi_key = rsi_state_of(rsi)
+
     daily = {
         "price": round(price, 2),
         "ma20": round(ma20, 2) if ma20 else None,
@@ -193,7 +312,23 @@ def build_indicators(closes, highs, lows, vols, opens):
         "low52": round(l52, 2) if l52 else None,
         "pos52": round(pos52, 1) if pos52 is not None else None,
         "vol_ratio": round(vol_ratio, 2) if vol_ratio else None,
+        "vol_avg20": round(avg_vol, 0) if avg_vol else None,
+        "vol_spike": bool(vol_ratio is not None and vol_ratio >= 2.0),
         "candle": "양봉" if opens and closes[-1] >= opens[-1] else "음봉",
+        "bb_upper": round(bb_up, 4) if bb_up is not None else None,
+        "bb_mid": round(bb_mid, 4) if bb_mid is not None else None,
+        "bb_lower": round(bb_lo, 4) if bb_lo is not None else None,
+        "bb_pos": bb_pos,
+        "bb_pos_key": bb_key,
+        "bb_pct_b": round(bb_pct_b, 1) if bb_pct_b is not None else None,
+        "cmf20": round(cmf20, 3) if cmf20 is not None else None,
+        "chg5": round(chg5, 2) if chg5 is not None else None,
+        "upper_wick_ratio": round(wick_ratio, 2) if wick_ratio is not None else None,
+        "fake_rally_warn": bool(reasons),
+        "fake_rally_reasons": reasons,
+        "fake_rally_note": " · ".join(r["detail"] for r in reasons),
+        "rsi_state": rsi_txt,
+        "rsi_state_key": rsi_key,
     }
     return daily
 
@@ -408,7 +543,16 @@ def build_market(key, themes, symbols, digits):
                 "ma20": d["ma20"], "ma60": d["ma60"], "ma200": d["ma200"],
                 "rsi14": d["rsi14"],
                 "high52": d["high52"], "low52": d["low52"], "pos52": d["pos52"],
-                "vol_ratio": d["vol_ratio"], "candle": d["candle"],
+                "vol_ratio": d["vol_ratio"], "vol_avg20": d["vol_avg20"],
+                "vol_spike": d["vol_spike"], "candle": d["candle"],
+                "bb_upper": d["bb_upper"], "bb_mid": d["bb_mid"], "bb_lower": d["bb_lower"],
+                "bb_pos": d["bb_pos"], "bb_pos_key": d["bb_pos_key"], "bb_pct_b": d["bb_pct_b"],
+                "cmf20": d["cmf20"], "chg5": d["chg5"],
+                "upper_wick_ratio": d["upper_wick_ratio"],
+                "fake_rally_warn": d["fake_rally_warn"],
+                "fake_rally_reasons": d["fake_rally_reasons"],
+                "fake_rally_note": d["fake_rally_note"],
+                "rsi_state": d["rsi_state"], "rsi_state_key": d["rsi_state_key"],
                 "ma200_dist_pct": round((d["price"] / d["ma200"] - 1) * 100, 1) if d["ma200"] else None,
                 "golden_zone": gz, "golden_note": gz_reason,
                 "filters": checks, "filter_count": passed,
@@ -431,6 +575,10 @@ def build_market(key, themes, symbols, digits):
             except Exception as e:  # noqa: BLE001
                 print(f"  ! weekly {sym}: {e}")
                 wh = {"t": [], "o": [], "h": [], "l": [], "c": [], "v": []}
+            # 볼린저밴드 시리즈 (일봉) — 앞쪽 19개는 null
+            bbs = bollinger_series(dh["c"], 20, 2.0)
+            for k, arr in (("bb_upper", bbs["upper"]), ("bb_mid", bbs["mid"]), ("bb_lower", bbs["lower"])):
+                dh[k] = [round(v, digits) if v is not None else None for v in arr]
             os.makedirs(HIST_DIR, exist_ok=True)
             with open(os.path.join(HIST_DIR, f"{sym}.json"), "w", encoding="utf-8") as f:
                 json.dump({"symbol": sym, "currency": cur, "daily": dh, "weekly": wh}, f,
