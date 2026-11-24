@@ -68,6 +68,7 @@ python3 scripts/fetch_data.py     # 표준 라이브러리만 사용 (yfinance �
 ```
 
 테마·종목을 추가하려면 `scripts/universe.py` 의 `THEMES_US` / `THEMES_KR` / `STOCKS` 를 고치고 다시 실행하면 됩니다.
+`docs/index.html` 의 `app.js?v=` / `style.css?v=` 값은 두 파일을 고칠 때 함께 올려 주세요(브라우저가 옛 파일을 계속 쓰는 걸 막습니다).
 야후 티커는 미국 `NVDA`, 코스피 `000660.KS`, 코스닥 `045970.KQ` 형식입니다.
 
 ## 한계

@@ -81,6 +81,13 @@
     if (v >= 1e4) return (v / 1e4).toFixed(1) + '만';
     return String(Math.round(v));
   }
+  /* 거래량 축 눈금 (1000.0만 같은 표기를 피한다) */
+  function volAxis(v) {
+    if (v == null || Number.isNaN(Number(v))) return '';
+    if (v >= 1e8) return (v / 1e8).toFixed(1) + '억';
+    if (v >= 1e4) return Math.round(v / 1e4).toLocaleString('ko-KR') + '만';
+    return String(Math.round(v));
+  }
   function mcapText(s) {
     if (!s.market_cap) return '–';
     if (s.currency === 'KRW') return compact(s.market_cap) + '원';
@@ -972,7 +979,7 @@
       grid: { vertLines: { color: '#f4f5f7' }, horzLines: { visible: false } },
       rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0 } },
       timeScale: { borderVisible: false, rightOffset: 4, fixLeftEdge: true },
-      localization: { priceFormatter: (v) => compact(v) },
+      localization: { priceFormatter: (v) => volAxis(v) },
     }));
     state.chart = chart;
     state.charts = [chart, volChart];
