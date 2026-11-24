@@ -586,7 +586,9 @@
     html += '<div class="card"><h3>🏦 월가 애널리스트 전망</h3>';
     if (an.available) {
       html += '<div style="display:flex;align-items:center;gap:8px;margin-top:8px">' +
-        '<span class="chip ' + (an.recommendation === '매수' || an.recommendation === '적극 매수' ? 'buy' : 'wait') + '">' + esc(an.recommendation) + '</span>' +
+        (an.recommendation && an.recommendation !== '집계 없음'
+          ? '<span class="chip ' + (an.recommendation === '매수' || an.recommendation === '적극 매수' ? 'buy' : 'wait') + '">' + esc(an.recommendation) + '</span>'
+          : '') +
         '<span class="hint">' + (an.analysts ? an.analysts + '명 애널리스트 집계' : '') +
         (an.recommendation_mean ? ' · 평균 점수 ' + an.recommendation_mean + '/5' : '') + '</span></div>' +
         '<div class="analyst-grid">' +

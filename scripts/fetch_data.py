@@ -308,7 +308,7 @@ def analyst_block(summary, price):
                   "매수" if rec_mean <= 2.5 else
                   "보유" if rec_mean <= 3.5 else "비중 축소")
     else:
-        key_kr = "집계 없음"
+        key_kr = "목표가만 집계"
     upside = round((mean / price - 1) * 100, 1) if mean and price else None
     return {
         "available": True,
