@@ -355,9 +355,9 @@
     const list = Object.keys(stocks).map((k) => stocks[k]);
     const gz = list.filter((s) => s.golden_zone).length;
     const f1n = list.filter((s) => s.f1 && s.f1.key === 'hit').length;
-    const f1w = list.filter((s) => s.f1 && (s.f1.key === 'wait' || s.f1.key === 'near')).length;
+    const f1w = list.filter((s) => s.f1 && s.f1.key === 'wait').length;
     const f2n = list.filter((s) => s.f2 && s.f2.key === 'hit').length;
-    const f2w = list.filter((s) => s.f2 && (s.f2.key === 'wait')).length;
+    const f2w = list.filter((s) => s.f2 && s.f2.key === 'wait').length;
     const hot = themes[0];
     const watched = state.watch.map(findStock).filter(Boolean)
       .filter((s) => s.market === state.market);
