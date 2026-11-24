@@ -42,6 +42,14 @@ scripts/
 .github/workflows/update.yml   (30분마다 자동 갱신)
 ```
 
+## 자동 갱신 켜기 (한 번만)
+
+이 저장소는 지금 **자동 갱신 워크플로가 빠진 상태**로 배포되었습니다. Pickle 의 GitHub 앱에 `Workflows` 쓰기 권한이 없어 `.github/workflows/update.yml` 푸시가 거절되기 때문입니다.
+둘 중 하나면 됩니다.
+
+1. GitHub에서 `us-stock-planner` → **Add file → Create new file** → 파일 이름 `.github/workflows/update.yml`, 내용은 이 저장소의 `scripts/update.workflow.yml` 을 그대로 복사 → Commit. (Actions 탭에서 30분 주기 실행 시작)
+2. 또는 GitHub **Settings → Applications → Pickle → Configure → Permissions → Workflows: Read and write** 로 바꿔 주시면 제가 직접 올려둡니다.
+
 ## 직접 갱신하기
 
 ```bash

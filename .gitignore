@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 .DS_Store
 .tmp_test/
+# GitHub App 워크플로 권한이 없어 저장소에는 scripts/update.workflow.yml 사본으로 둡니다.
+# 권한이 생기면 이 줄을 지우고 .github/workflows/update.yml 을 커밋하세요.
+.github/workflows/update.yml
