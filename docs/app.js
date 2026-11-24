@@ -238,10 +238,16 @@
       return state.hist[sym];
     }
     let lastErr = null;
+    const stamp = (state.data && state.data.meta && state.data.meta.generated_at) || '';
+    const base = 'data/hist/' + encodeURIComponent(sym) + '.json';
     for (let i = 0; i < 3; i++) {
       try {
-        const url = 'data/hist/' + encodeURIComponent(sym) + '.json' + (i ? '?r=' + Date.now() : '');
-        const res = await fetch(url, { cache: 'force-cache' });
+        /* 데이터 갱신 시각을 캐시 키에 넣어 오래된 히스토리가 남지 않게 한다 */
+        const params = [];
+        if (stamp) params.push('v=' + encodeURIComponent(stamp));
+        if (i) params.push('r=' + Date.now());
+        const url = base + (params.length ? '?' + params.join('&') : '');
+        const res = await fetch(url, { cache: 'default' });
         if (!res.ok) throw new Error('차트 응답 ' + res.status);
         const j = await res.json();
         state.hist[sym] = j;
@@ -706,8 +712,8 @@
         (s.bb_pos_key || 'na') + '">' + esc(s.bb_pos || '–') + '</span></span></div>' +
       '<div class="kv"><span class="k">상단 / 중심 / 하단</span><span class="v">' +
         money(s.bb_upper, cur) + ' / ' + money(s.bb_mid, cur) + ' / ' + money(s.bb_lower, cur) + '</span></div>' +
-      '<div class="kv"><span class="k">밴드 안 위치(%B)</span><span class="v">' +
-        (s.bb_pct_b == null ? '–' : s.bb_pct_b + '%') + '</span></div>' +
+      '<div class="kv"><span class="k">밴드 위치(%B)</span><span class="v">' +
+        (s.bb_pct_b == null ? '–' : s.bb_pct_b + '<span class="hint"> (0=하단, 100=상단)</span>') + '</span></div>' +
       '<div class="kv"><span class="k">오늘 거래량 / 20일 평균</span><span class="v">' +
         (s.vol_ratio == null ? '–' : s.vol_ratio + '배') + (s.vol_spike ? ' 🔥 급증' : '') + '</span></div>' +
       '<div class="kv"><span class="k">20일 평균 거래량</span><span class="v">' +
