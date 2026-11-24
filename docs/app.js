@@ -553,7 +553,9 @@
           '<div class="rname"><div class="n1">' + esc(s.name) +
             ' <span class="chip ' + s.tone + '">' + s.filter_count + '/4</span>' +
             (s.golden_zone ? ' <span class="chip gz">골든존</span>' : '') + '</div>' +
-            '<div class="n2">' + esc(s.symbol) + ' · RSI ' + (s.rsi14 == null ? '–' : s.rsi14) +
+            '<div class="n2">' + esc(s.symbol) +
+            /* RSI는 바로 아래 배지에 수치+상태로 나오니, 배지가 없을 때만 여기에 적는다 */
+            (s.rsi_state_key && s.rsi_state_key !== 'na' ? '' : ' · RSI ' + (s.rsi14 == null ? '–' : s.rsi14)) +
             ' · 200일선 ' + (s.ma200_dist_pct == null ? '–' : (s.ma200_dist_pct > 0 ? '+' : '') + s.ma200_dist_pct + '%') + '</div>' +
             stockBadges(s) + '</div>' +
           '<div class="rprice"><div class="p1">' + money(s.price, s.currency) + '</div>' +
