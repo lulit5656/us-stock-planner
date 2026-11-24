@@ -1,0 +1,15 @@
+{
+  "name": "글로벌 주식플래너 · 미장·국장 테마 대시보드",
+  "short_name": "주식플래너",
+  "description": "뜨거운 테마와 대장주, 쉬운 회사 설명, 월가 목표가, 200일선 골든존을 한 화면에서.",
+  "lang": "ko",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

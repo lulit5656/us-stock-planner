@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>글로벌 주식플래너 · 미장·국장 테마 대시보드</title>
+<meta name="description" content="미국장과 국장의 뜨거운 테마·대장주, 쉬운 회사 설명, 월가 목표가, 200일선 골든존 매수 위치를 한 화면에서.">
+<meta name="theme-color" content="#ffffff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand-row">
+    <h1 class="brand">📈 글로벌 주식플래너</h1>
+    <span class="stamp" id="stamp">불러오는 중…</span>
+  </div>
+
+  <div class="market-tabs" role="tablist" aria-label="시장 선택">
+    <button class="mtab" id="tabUs" data-market="us" role="tab">🇺🇸 미국장</button>
+    <button class="mtab" id="tabKr" data-market="kr" role="tab">🇰🇷 국장</button>
+  </div>
+
+  <div class="indexstrip" id="indexStrip"></div>
+  <div class="clockline" id="clockLine"></div>
+</header>
+
+<main id="app" class="app"></main>
+
+<nav class="tabbar" id="tabbar">
+  <button class="tbtn" data-nav="home"><span>🏠</span>홈</button>
+  <button class="tbtn" data-nav="screen"><span>🎯</span>매수후보</button>
+  <button class="tbtn" data-nav="search"><span>🔍</span>검색</button>
+  <button class="tbtn" data-nav="watch"><span>⭐</span>관심</button>
+</nav>
+
+<div class="overlay" id="searchOverlay" hidden>
+  <div class="overlay-head">
+    <input id="searchInput" type="search" inputmode="search" placeholder="종목명·티커로 검색 (예: 엔비디아, NVDA, 하이닉스)" autocomplete="off">
+    <button class="closebtn" id="searchClose" aria-label="닫기">✕</button>
+  </div>
+  <div class="overlay-body" id="searchResults"></div>
+  <div class="overlay-foot">미국·국장 전체 종목에서 한글 이름과 티커로 찾습니다.</div>
+</div>
+
+<footer class="foot">
+  <p><strong>참고용 정보</strong> · 야후 파이낸스 공개 데이터의 <strong>약 15분 지연</strong> 시세와 일봉 종가 기준입니다. 매수·매도 권유가 아니며 투자 판단과 손실은 본인 책임입니다.</p>
+</footer>
+
+<script src="vendor/lwcharts.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+name: 데이터 자동 갱신
+
+on:
+  schedule:
+    # 30분마다 (UTC 기준). 무료 데이터가 약 15분 지연이라 30분 주기가 적당합니다.
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 저장소 가져오기
+        uses: actions/checkout@v4
+
+      - name: 파이썬 준비
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 시세·지표 수집 (야후 파이낸스)
+        run: python scripts/fetch_data.py
+
+      - name: 데이터 커밋
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data
+          if git diff --staged --quiet; then
+            echo "변경 없음 - 커밋 생략"
+          else
+            git commit -m "data: $(date -u +%Y-%m-%dT%H:%MZ) 자동 갱신"
+            git push
+          fi
