@@ -66,7 +66,8 @@
   function krwApprox(v, cur) {
     if (cur === 'KRW' || v == null) return '';
     const won = v * fx();
-    const rounded = won >= 100000 ? Math.round(won / 1000) * 1000 : Math.round(won);
+    const rounded = won >= 100000 ? Math.round(won / 1000) * 1000 :
+      (won >= 10000 ? Math.round(won / 100) * 100 : Math.round(won));
     return '약 ' + rounded.toLocaleString('ko-KR') + '원';
   }
   function pct(v, withSign = true) {
