@@ -299,8 +299,16 @@ def analyst_block(summary, price):
     if not mean and not high and not low:
         return {"available": False,
                 "note": "목표가 집계 없음 (차트·4중 필터 기준 확인)"}
-    key_kr = {"strong_buy": "적극 매수", "buy": "매수", "hold": "보유",
-              "underperform": "비중 축소", "sell": "매도", "none": "집계 없음"}.get(rec_key, "집계 없음")
+    mapping = {"strong_buy": "적극 매수", "buy": "매수", "hold": "보유",
+               "underperform": "비중 축소", "sell": "매도"}
+    if rec_key in mapping:
+        key_kr = mapping[rec_key]
+    elif rec_mean:
+        key_kr = ("적극 매수" if rec_mean <= 1.5 else
+                  "매수" if rec_mean <= 2.5 else
+                  "보유" if rec_mean <= 3.5 else "비중 축소")
+    else:
+        key_kr = "집계 없음"
     upside = round((mean / price - 1) * 100, 1) if mean and price else None
     return {
         "available": True,

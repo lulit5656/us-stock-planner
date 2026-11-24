@@ -841,12 +841,13 @@
       box.innerHTML = '<div class="empty">"' + esc(q) + '" 검색 결과가 없습니다.</div>';
       return;
     }
-    const shown = hit.slice(0, 60);
+    const shown = hit.slice(0, 200);
     let html = '';
     ['us', 'kr'].forEach((mk) => {
+      const all = hit.filter((s) => s.market === mk);
       const list = shown.filter((s) => s.market === mk);
       if (!list.length) return;
-      html += '<div class="market-sep">' + (mk === 'us' ? '🇺🇸 미국장' : '🇰🇷 국장') + ' · ' + list.length + '</div>';
+      html += '<div class="market-sep">' + (mk === 'us' ? '🇺🇸 미국장' : '🇰🇷 국장') + ' · ' + all.length + '</div>';
       html += list.map((s) => '<button class="row" style="width:100%;text-align:left" data-search-pick="' + esc(s.symbol) + '">' +
         '<div class="rname"><div class="n1">' + esc(s.name) + (s.golden_zone ? ' <span class="chip gz">골든존</span>' : '') + '</div>' +
         '<div class="n2">' + esc(s.symbol) + ' · ' + (s.sector || (mk === 'us' ? '미국' : '한국')) + '</div></div>' +
