@@ -218,8 +218,15 @@
       $('#stamp').textContent = (m0.generated_at_kst || '').replace(' KST', '') + ' 갱신 · 15분 지연';
       return;
     }
-    const res = await fetch('data/stocks.json?t=' + Date.now(), { cache: 'no-store' });
-    if (!res.ok) throw new Error('데이터 응답 ' + res.status);
+    let res = null;
+    for (let i = 0; i < 3; i++) {
+      try {
+        res = await fetch('data/stocks.json?t=' + Date.now(), { cache: 'no-store' });
+        if (res.ok) break;
+      } catch (e) { res = null; }
+      await new Promise((r) => setTimeout(r, 500 * (i + 1)));
+    }
+    if (!res || !res.ok) throw new Error('데이터 응답 ' + (res ? res.status : '실패'));
     state.data = await res.json();
     const meta = state.data.meta || {};
     $('#stamp').textContent = (meta.generated_at_kst || '').replace(' KST', '') + ' 갱신 · 15분 지연';
@@ -230,11 +237,21 @@
       state.hist[sym] = window.__HIST__[sym];
       return state.hist[sym];
     }
-    const res = await fetch('data/hist/' + encodeURIComponent(sym) + '.json', { cache: 'force-cache' });
-    if (!res.ok) throw new Error('차트 데이터 없음');
-    const j = await res.json();
-    state.hist[sym] = j;
-    return j;
+    let lastErr = null;
+    for (let i = 0; i < 3; i++) {
+      try {
+        const url = 'data/hist/' + encodeURIComponent(sym) + '.json' + (i ? '?r=' + Date.now() : '');
+        const res = await fetch(url, { cache: 'force-cache' });
+        if (!res.ok) throw new Error('차트 응답 ' + res.status);
+        const j = await res.json();
+        state.hist[sym] = j;
+        return j;
+      } catch (e) {
+        lastErr = e;
+        await new Promise((r) => setTimeout(r, 600 * (i + 1)));
+      }
+    }
+    throw lastErr || new Error('차트 데이터 없음');
   }
 
   /* ---------------------------------------------------------------- route */
@@ -583,8 +600,8 @@
           (an.revenue_growth != null ? '<div class="hint" style="margin-top:4px">매출 성장률 ' + (an.revenue_growth * 100).toFixed(1) + '% (최근 분기 YoY)</div>' : '') +
         '</div>';
     } else {
-      html += '<div class="notice" style="margin-top:8px">' + esc(an.note) + '<br>' +
-        '이 종목은 애널리스트 목표가가 집계되지 않습니다. 아래 차트의 200일선·골든존과 4중 필터 판정으로만 판단하세요.</div>';
+      html += '<div class="notice" style="margin-top:8px"><div style="font-weight:800">' + esc(an.note) + '</div>' +
+        '<div style="margin-top:4px">이 종목은 애널리스트 목표가가 집계되지 않습니다. 아래 차트의 200일선·골든존과 4중 필터 판정으로만 판단하세요.</div></div>';
     }
     html += '</div>';
 
@@ -696,7 +713,9 @@
     try {
       hist = await loadHist(sym);
     } catch (e) {
-      el.innerHTML = '<div class="empty">차트 데이터를 불러오지 못했습니다.</div>';
+      el.innerHTML = '<div class="empty">차트 데이터를 불러오지 못했습니다.<br>잠시 후 다시 열어주세요.</div>';
+      const lg = document.getElementById('chartLegend');
+      if (lg) lg.textContent = '차트 로딩 실패 — 잠시 후 다시';
       return;
     }
     if (state.view !== 'stock' || state.arg !== sym) return;
