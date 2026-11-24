@@ -692,12 +692,16 @@
           '<button class="tg on" data-tg="ma">200일선</button>' +
           '<button class="tg on" data-tg="zone">골든존</button>' +
           '<button class="tg bb' + (chartState.bb ? ' on' : '') + '" data-tg="bb">볼린저밴드</button>' +
+          '<button class="tg rsi' + (chartState.rsi ? ' on' : '') + '" data-tg="rsi">RSI</button>' +
         '</div>' +
       '</div>' +
       '<div id="chart"></div>' +
       '<div class="legend" id="chartLegend">불러오는 중…</div>' +
+      '<div class="legend rsi-legend" id="rsiLegend"' + (chartState.rsi ? '' : ' hidden') + '>RSI(14) 불러오는 중…</div>' +
       '<div class="chart-note">🟠 200일선(골든선) · 🟡 골든존 = 200일선 ±3% 밴드 · 🟣 볼린저밴드 = 20일선 ±2표준편차 · ' +
-        '아래 거래량 막대는 <b style="color:#f97316">주황색</b>이면 20일 평균 2배 이상 급증한 날입니다. 주봉은 200일선을 40주선으로 환산합니다.</div>' +
+        '아래 거래량 막대는 <b style="color:#f97316">주황색</b>이면 20일 평균 2배 이상 급증한 날입니다. ' +
+        '<b style="color:#e0342b">RSI 70</b>은 과열, <b style="color:#1673e6">RSI 30</b>은 과매도 기준선이고, ' +
+        '주봉은 200일선을 40주선·RSI는 주봉 14주 기준으로 환산합니다.</div>' +
     '</div>';
 
     // 4중 필터
@@ -833,7 +837,7 @@
   }
 
   /* ---------------------------------------------------------------- chart */
-  const chartState = { mode: 'day', ma: true, zone: true, bb: false, sym: null };
+  const chartState = { mode: 'day', ma: true, zone: true, bb: false, rsi: true, sym: null };
 
   /* 볼린저밴드 (20일 · ±2 표준편차) — 차트용 포인트 */
   function bollingerPoints(candles, n, k) {
@@ -895,6 +899,54 @@
     return out;
   }
 
+  /* RSI(14) 전 구간 — 데이터에 저장된 시리즈가 있으면 그대로,
+     없으면(옛 캐시·외부 히스토리) 같은 Wilder 공식으로 계산한다. 앞 14개는 값이 없어 건너뛴다. */
+  function rsiPoints(candles, period, stored) {
+    const n = candles.length;
+    let s = (stored && stored.length === n) ? stored : null;
+    if (!s) {
+      s = new Array(n).fill(null);
+      if (n > period) {
+        let g = 0;
+        let l = 0;
+        for (let i = 1; i <= period; i++) {
+          const d = candles[i].close - candles[i - 1].close;
+          g += Math.max(d, 0);
+          l += Math.max(-d, 0);
+        }
+        let ag = g / period;
+        let al = l / period;
+        const val = (a, b) => (b === 0 ? 100 : 100 - 100 / (1 + a / b));
+        s[period] = +val(ag, al).toFixed(1);
+        for (let i = period + 1; i < n; i++) {
+          const d = candles[i].close - candles[i - 1].close;
+          ag = (ag * (period - 1) + Math.max(d, 0)) / period;
+          al = (al * (period - 1) + Math.max(-d, 0)) / period;
+          s[i] = +val(ag, al).toFixed(1);
+        }
+      }
+    }
+    const points = [];
+    const byTime = {};
+    for (let i = 0; i < n; i++) {
+      const v = s[i];
+      if (v == null || Number.isNaN(Number(v))) continue;
+      const val = +Number(v).toFixed(1);
+      points.push({ time: candles[i].time, value: val });
+      byTime[candles[i].time] = val;
+    }
+    return { points, byTime, last: points.length ? points[points.length - 1].value : null };
+  }
+
+  /* RSI 상태 문구·색 키 (목록 배지와 같은 기준: 35↓ 과매도 / 35~45 눌림목 / 70↑ 과열) */
+  function rsiStateOf(v) {
+    if (v == null) return { text: '–', key: 'na' };
+    if (v <= 35) return { text: '과매도', key: 'oversold' };
+    if (v <= 45) return { text: '눌림목', key: 'dip' };
+    if (v >= 70) return { text: '과열', key: 'hot' };
+    return { text: '중립', key: 'neutral' };
+  }
+
   function seriesFor(hist) {
     const key = chartState.mode === 'week' ? 'weekly' : 'daily';
     const h = hist[key];
@@ -915,6 +967,7 @@
       ma60: smaPoints(candles, n60),
       bb,
       vol: volumePoints(candles),
+      rsi: rsiPoints(candles, 14, h.rsi14),
       isWeek,
       cur: hist.currency || 'USD',
     };
@@ -948,13 +1001,19 @@
     const elf = window.LightweightCharts;
     if (!elf) { el.innerHTML = '<div class="empty">차트 라이브러리를 불러오지 못했습니다.</div>'; return; }
 
-    /* 가격 패널 + 거래량 패널을 따로 두고 시간축만 동기화한다 (거래량이 가격 축을 침범하지 않게) */
+    /* 가격·거래량·RSI 패널을 따로 두고 시간축만 동기화한다 (축이 서로를 침범하지 않게) */
     const hostP = document.createElement('div');
     hostP.className = 'chart-pane chart-pane-price';
     const hostV = document.createElement('div');
     hostV.className = 'chart-pane chart-pane-vol';
     el.appendChild(hostP);
     el.appendChild(hostV);
+    let hostR = null;
+    if (chartState.rsi) {
+      hostR = document.createElement('div');
+      hostR.className = 'chart-pane chart-pane-rsi';
+      el.appendChild(hostR);
+    }
 
     const W = el.clientWidth || 320;
     const base = {
@@ -978,11 +1037,22 @@
       height: 86,
       grid: { vertLines: { color: '#f4f5f7' }, horzLines: { visible: false } },
       rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0 } },
-      timeScale: { borderVisible: false, rightOffset: 4, fixLeftEdge: true },
+      /* RSI 패널이 켜지면 날짜축은 맨 아래 RSI 패널 하나만 보여준다 */
+      timeScale: { visible: !chartState.rsi, borderVisible: false, rightOffset: 4, fixLeftEdge: true },
       localization: { priceFormatter: (v) => volAxis(v) },
     }));
+    let rsiChart = null;
+    if (hostR) {
+      rsiChart = elf.createChart(hostR, Object.assign({}, base, {
+        height: 84,
+        grid: { vertLines: { color: '#f4f5f7' }, horzLines: { color: '#f4f5f7' } },
+        rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.06, bottom: 0.06 } },
+        timeScale: { borderVisible: false, rightOffset: 4, fixLeftEdge: true },
+        localization: { priceFormatter: (v) => String(Math.round(v)) },
+      }));
+    }
     state.chart = chart;
-    state.charts = [chart, volChart];
+    state.charts = rsiChart ? [chart, volChart, rsiChart] : [chart, volChart];
 
     const pf = { type: 'price', precision: isKR ? 0 : 2, minMove: isKR ? 1 : 0.01 };
 
@@ -997,6 +1067,22 @@
       priceFormat: { type: 'volume' },
     });
     volAvg.setData(S.vol.avgLine);
+
+    /* RSI(14) 패널 — 세로축 0~100 고정, 70(과열)·30(과매도) 점선 기준선 */
+    let rsiLine = null;
+    if (rsiChart) {
+      rsiLine = rsiChart.addLineSeries({
+        color: '#4338ca', lineWidth: 2, title: 'RSI(14)',
+        priceLineVisible: false, lastValueVisible: true,
+        crosshairMarkerVisible: true, crosshairMarkerRadius: 3,
+        priceFormat: { type: 'price', precision: 1, minMove: 0.1 },
+        autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }),
+      });
+      rsiLine.setData(S.rsi.points);
+      rsiLine.createPriceLine({ price: 70, color: 'rgba(224,52,43,.75)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '' });
+      rsiLine.createPriceLine({ price: 30, color: 'rgba(22,115,230,.75)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '' });
+      rsiLine.createPriceLine({ price: 50, color: 'rgba(139,147,161,.30)', lineWidth: 1, lineStyle: 0, axisLabelVisible: false, title: '' });
+    }
 
     /* 가격 패널 */
     const candle = chart.addCandlestickSeries({
@@ -1041,17 +1127,20 @@
     }
     chart.timeScale().fitContent();
     volChart.timeScale().fitContent();
+    if (rsiChart) rsiChart.timeScale().fitContent();
 
-    /* 두 패널 스크롤·확대 동기화 */
+    /* 패널 스크롤·확대 동기화 (가상·거래량·RSI 세 패널) */
     let syncing = false;
-    const link = (a, b) => a.timeScale().subscribeVisibleLogicalRangeChange((r) => {
+    const syncPanels = state.charts;
+    syncPanels.forEach((a) => a.timeScale().subscribeVisibleLogicalRangeChange((r) => {
       if (syncing || !r) return;
       syncing = true;
-      try { b.timeScale().setVisibleLogicalRange(r); } catch (e) { /* ignore */ }
+      syncPanels.forEach((b) => {
+        if (b === a) return;
+        try { b.timeScale().setVisibleLogicalRange(r); } catch (e) { /* ignore */ }
+      });
       syncing = false;
-    });
-    link(chart, volChart);
-    link(volChart, chart);
+    }));
 
     const legend = document.getElementById('chartLegend');
     const setLegend = (c) => {
@@ -1071,18 +1160,40 @@
         ' · 저 ' + axisMoney(c.low, cur) + ' · 종 <b>' + axisMoney(c.close, cur) + '</b>' +
         (info ? ' · 거래량 ' + compact(info.v) + (info.r ? ' (' + info.r + '배)' : '') : '');
     };
-    chart.subscribeCrosshairMove((param) => {
-      if (!param || !param.time || !param.seriesData) { setLegend(null); return; }
-      const d = param.seriesData.get(candle);
-      setLegend(d || null);
-    });
+    const candleByTime = {};
+    S.candles.forEach((c) => { candleByTime[c.time] = c; });
+
+    /* RSI 범례 — 현재(또는 커서) RSI(14) 수치 + 상태 */
+    const rsiLegend = document.getElementById('rsiLegend');
+    const setRsiLegend = (v, timeStr) => {
+      if (!rsiLegend) return;
+      if (!chartState.rsi) { rsiLegend.hidden = true; return; }
+      rsiLegend.hidden = false;
+      const st = rsiStateOf(v);
+      rsiLegend.innerHTML = (timeStr ? esc(timeStr) + ' · ' : '') +
+        '<span class="rsi-tag">RSI(14)</span> ' +
+        '<b class="rsi-num ' + st.key + '">' + (v == null ? '–' : v.toFixed(1)) + '</b> ' +
+        '<span class="chip rsi ' + st.key + '">' + st.text + '</span>' +
+        ' <span class="rsi-scale">과열 70 / 과매도 30 · ' + (S.isWeek ? '주봉' : '일봉') + ' 기준</span>';
+    };
+
+    const onMove = (param) => {
+      let d = null;
+      if (param && param.time && candleByTime[param.time]) d = candleByTime[param.time];
+      setLegend(d);
+      setRsiLegend(param && param.time ? S.rsi.byTime[param.time] : S.rsi.last, param && param.time ? param.time : null);
+    };
+    chart.subscribeCrosshairMove(onMove);
+    if (rsiChart) rsiChart.subscribeCrosshairMove(onMove);
     setLegend(null);
+    setRsiLegend(S.rsi.last, null);
 
     const ro = new ResizeObserver(() => {
       const w = el.clientWidth;
       if (!w) return;
       chart.applyOptions({ width: w });
       volChart.applyOptions({ width: w });
+      if (rsiChart) rsiChart.applyOptions({ width: w });
     });
     ro.observe(el);
     state.ro = ro;

@@ -253,6 +253,39 @@ def rsi_wilder(closes, period=14):
     return 100.0 - (100.0 / (1.0 + rs))
 
 
+def rsi_series(closes, period=14):
+    """Wilder RSI(14) 전 구간 시리즈 — 차트용.
+
+    앞 period개는 기준값이 없으므로 None, 이후는 소수 1자리 반올림 값.
+    마지막 값은 rsi_wilder() 결과와 같다(차트 요약 수치와 일치).
+    """
+    n = len(closes)
+    out = [None] * n
+    if n < period + 1:
+        return out
+
+    def _val(avg_g, avg_l):
+        if avg_l == 0:
+            return 100.0
+        return 100.0 - (100.0 / (1.0 + avg_g / avg_l))
+
+    gains = 0.0
+    losses = 0.0
+    for i in range(1, period + 1):
+        d = closes[i] - closes[i - 1]
+        gains += max(d, 0.0)
+        losses += max(-d, 0.0)
+    avg_g = gains / period
+    avg_l = losses / period
+    out[period] = round(_val(avg_g, avg_l), 1)
+    for i in range(period + 1, n):
+        d = closes[i] - closes[i - 1]
+        avg_g = (avg_g * (period - 1) + max(d, 0.0)) / period
+        avg_l = (avg_l * (period - 1) + max(-d, 0.0)) / period
+        out[i] = round(_val(avg_g, avg_l), 1)
+    return out
+
+
 def build_indicators(closes, highs, lows, vols, opens):
     price = closes[-1]
     ma20 = sma(closes, 20)
@@ -579,6 +612,10 @@ def build_market(key, themes, symbols, digits):
             bbs = bollinger_series(dh["c"], 20, 2.0)
             for k, arr in (("bb_upper", bbs["upper"]), ("bb_mid", bbs["mid"]), ("bb_lower", bbs["lower"])):
                 dh[k] = [round(v, digits) if v is not None else None for v in arr]
+            # RSI(14) 시리즈 (일봉·주봉) — 차트 세 번째 패널용, 앞 14개 null
+            dh["rsi14"] = rsi_series(dh["c"], 14)
+            if wh.get("c"):
+                wh["rsi14"] = rsi_series(wh["c"], 14)
             os.makedirs(HIST_DIR, exist_ok=True)
             with open(os.path.join(HIST_DIR, f"{sym}.json"), "w", encoding="utf-8") as f:
                 json.dump({"symbol": sym, "currency": cur, "daily": dh, "weekly": wh}, f,
