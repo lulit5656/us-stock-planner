@@ -489,12 +489,12 @@
     return out.join('');
   }
 
-  /* 리스트용 배지: RSI 상태 · 거래량 2배↑ · 가짜 상승 경고 · 볼린저 극단 */
+  /* 리스트용 배지: RSI 수치+상태 · 거래량 2배↑ · 가짜 상승 경고 · 볼린저 극단 */
   function stockBadges(s) {
     const out = [];
     if (s.rsi_state && s.rsi_state_key && s.rsi_state_key !== 'na') {
-      out.push('<span class="chip rsi ' + s.rsi_state_key + '" title="RSI(14) ' +
-        (s.rsi14 == null ? '–' : s.rsi14) + ' · ' + esc(s.rsi_state) + '">RSI ' + esc(s.rsi_state) + '</span>');
+      const rsiTxt = (s.rsi14 == null ? '–' : s.rsi14) + ' · ' + esc(s.rsi_state);
+      out.push('<span class="chip rsi ' + s.rsi_state_key + '" title="RSI(14) ' + rsiTxt + '">RSI ' + rsiTxt + '</span>');
     }
     if (s.vol_spike && s.vol_ratio != null) {
       out.push('<span class="chip vol" title="오늘 거래량이 20일 평균의 ' + s.vol_ratio + '배">🔥 거래량 ' + s.vol_ratio + '배</span>');
@@ -1072,8 +1072,8 @@
     let rsiLine = null;
     if (rsiChart) {
       rsiLine = rsiChart.addLineSeries({
-        color: '#4338ca', lineWidth: 2, title: 'RSI(14)',
-        priceLineVisible: false, lastValueVisible: true,
+        color: '#4338ca', lineWidth: 2,
+        priceLineVisible: false, lastValueVisible: false,
         crosshairMarkerVisible: true, crosshairMarkerRadius: 3,
         priceFormat: { type: 'price', precision: 1, minMove: 0.1 },
         autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }),
