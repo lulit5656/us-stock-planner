@@ -13,6 +13,7 @@
     watch: [],
     view: 'home',
     arg: null,
+    screenTab: 'all',
     chart: null,
     charts: null,
     colorUp: '#e0342b',
@@ -352,7 +353,10 @@
     const themes = m.themes || [];
     const list = Object.keys(stocks).map((k) => stocks[k]);
     const gz = list.filter((s) => s.golden_zone).length;
-    const cands = list.filter((s) => s.filter_count >= 3).length;
+    const f1n = list.filter((s) => s.f1 && s.f1.key === 'hit').length;
+    const f1w = list.filter((s) => s.f1 && (s.f1.key === 'wait' || s.f1.key === 'near')).length;
+    const f2n = list.filter((s) => s.f2 && s.f2.key === 'hit').length;
+    const f2w = list.filter((s) => s.f2 && (s.f2.key === 'wait')).length;
     const hot = themes[0];
     const watched = state.watch.map(findStock).filter(Boolean)
       .filter((s) => s.market === state.market);
@@ -376,8 +380,8 @@
         card('🔥 지금 유행 테마', hot ? hot.emoji + ' ' + hot.name : '–',
              hot ? pct(hot.avg_change) + ' · ↑' + hot.up + ' ↓' + hot.down : '',
              href(state.market, 'theme', hot ? hot.id : '')) +
-        card('🎯 4중 필터 매수후보', cands + '개 종목',
-             '골든존 ' + gz + '개 · 눌림·정배열 통과', href(state.market, 'screen')) +
+        card('🎯 매수후보 · 2대 공식', '① ' + (f1n + f1w) + ' · ② ' + (f2n + f2w) + '개',
+             '딱 맞음 ①' + f1n + ' · ②' + f2n + ' · 골든존 ' + gz + '개', href(state.market, 'screen')) +
         card('🔍 종목 검색', '종목·티커 검색', '한글 이름으로도 찾기', 'SEARCH') +
         card('⭐ 관심종목', watched.length + '개 담김',
              watched.length ? watched[0].name + ' ' + pct(watched[0].change_pct) : '별을 눌러 담아두세요',
@@ -416,6 +420,7 @@
       '<div class="card" style="margin-top:10px">' +
         '<h3>📌 이 화면 쓰는 법</h3>' +
         '<div class="kv"><span class="k">골든존</span><span class="v">200일선 ±3% 또는 RSI 35~45 눌림</span></div>' +
+        '<div class="kv"><span class="k">공식 ①·②</span><span class="v">200일선 돌파·지지 / 바닥 반등 단타</span></div>' +
         '<div class="kv"><span class="k">4중 필터</span><span class="v">추세 · RSI · 거래량/양봉 · 손익비</span></div>' +
         '<div class="kv"><span class="k">볼린저밴드</span><span class="v">20일선 ±2표준편차 (상단 돌파=과열, 하단 근접=반등 자리)</span></div>' +
         '<div class="kv"><span class="k">거래량 배수</span><span class="v">20일 평균 대비 · 2배 이상이면 🔥 급증</span></div>' +
@@ -489,6 +494,27 @@
     return out.join('');
   }
 
+  /* 종목 상세용 2대 공식 블록 */
+  function fxBlock(s, mode) {
+    const f = (mode === 'f1' ? s.f1 : s.f2) || null;
+    if (!f) return '';
+    const title = mode === 'f1' ? '📈 공식 ① 200일선 돌파·지지' : '🎯 공식 ② 바닥 반등 단타';
+    const cur = s.currency;
+    const ma = (f.sell && f.sell.ma200 != null) ? f.sell.ma200 : s.ma200;
+    const kw = krwApprox(ma, cur);
+    const sellLine = mode === 'f2'
+      ? '반등 시 200일선 <b>' + money(ma, cur) + '</b>' + (kw ? ' (' + esc(kw) + ')' : '') + ' 근처 매도'
+      : '200일선 <b>' + money(ma, cur) + '</b>' + (kw ? ' (' + esc(kw) + ')' : '') + ' 이탈하면 손절';
+    return '<div class="fxb"><div class="fxb-h"><b>' + title + '</b>' +
+      '<span class="chip ' + (f.key === 'hit' ? 'buy' : (f.key === 'out' ? 'avoid' : 'watch')) + '">' + esc(f.state) + '</span></div>' +
+      (f.checks || []).map((c) => '<div class="filter-row"><span class="fmark ' + (c.ok ? 'ok' : 'no') + '">' +
+        (c.ok ? '✓' : '·') + '</span><div class="ftext"><b>' + esc(c.label) + '</b>' +
+        '<div class="d">' + esc(c.detail) + '</div></div></div>').join('') +
+      '<div class="hint" style="margin-top:8px">' + esc(f.note || '') + '</div>' +
+      '<div class="cand-sell" style="margin-top:8px">🎯 ' + sellLine + '</div>' +
+    '</div>';
+  }
+
   /* 리스트용 배지: RSI 수치+상태 · 거래량 2배↑ · 가짜 상승 경고 · 볼린저 극단 */
   function stockBadges(s) {
     const out = [];
@@ -526,44 +552,205 @@
   }
 
   /* ---------------------------------------------------------------- screen */
+  /* 사용자가 직접 정한 2대 매매 공식으로 거른 매수후보 화면 */
+  const FX_TABS = [
+    { id: 'all', label: '전체' },
+    { id: 'f1', label: '📈 200일선 돌파·지지' },
+    { id: 'f2', label: '🎯 바닥 반등 단타' },
+  ];
+
+  function fxBuckets(list) {
+    const b = { f1hit: [], f1wait: [], f1near: [], f1out: [], f2hit: [], f2wait: [], f2near: [] };
+    list.forEach((s) => {
+      const k1 = (s.f1 || {}).key;
+      const k2 = (s.f2 || {}).key;
+      if (k1 === 'hit') b.f1hit.push(s);
+      else if (k1 === 'wait') b.f1wait.push(s);
+      else if (k1 === 'near') b.f1near.push(s);
+      else if (k1 === 'out') b.f1out.push(s);
+      if (k2 === 'hit') b.f2hit.push(s);
+      else if (k2 === 'wait') b.f2wait.push(s);
+      else if (k2 === 'near') b.f2near.push(s);
+    });
+    const vmax = (s) => (s.vol_max3 == null ? 0 : s.vol_max3);
+    const rsiV = (s) => (s.rsi14 == null ? 99 : s.rsi14);
+    b.f1hit.sort((a, c) => vmax(c) - vmax(a));
+    b.f1wait.sort((a, c) => vmax(c) - vmax(a));
+    b.f1near.sort((a, c) => vmax(c) - vmax(a));
+    b.f1out.sort((a, c) => ((a.ma200_break_ago == null ? 9 : a.ma200_break_ago) -
+      (c.ma200_break_ago == null ? 9 : c.ma200_break_ago)) || vmax(c) - vmax(a));
+    b.f2hit.sort((a, c) => vmax(c) - vmax(a));
+    b.f2wait.sort((a, c) => vmax(c) - vmax(a) || rsiV(a) - rsiV(c));
+    b.f2near.sort((a, c) => vmax(c) - vmax(a));
+    return b;
+  }
+
+  function fxPill(ok, txt) {
+    return '<span class="chip ' + (ok ? 'buy' : 'wait') + '">' + esc(txt) + '</span>';
+  }
+
+  function volDayTxt(s) {
+    const days = s.vol_spike_days || [];
+    if (!days.length) return '';
+    return days[0] === 0 ? '오늘' : days[0] + '거래일 전';
+  }
+
+  /* 후보 카드: 조건 충족 여부(200일선·거래량·RSI·볼린저) + 매도 기준(200일선 가격)을 한 카드에 */
+  function candCard(s, mode) {
+    const cur = s.currency;
+    const f = (mode === 'f1' ? s.f1 : s.f2) || {};
+    const distTxt = s.ma200_dist_pct == null ? '–' :
+      (s.ma200_dist_pct > 0 ? '+' : '') + s.ma200_dist_pct + '%';
+    const volTxt = '거래량 ' + (s.vol_max3 == null ? '–' : s.vol_max3 + '배');
+    const chips = [];
+    if (mode === 'f1') {
+      chips.push(fxPill(!!f.above, '200일선 ' + distTxt));
+      chips.push(fxPill(!!f.vol_ok, volTxt + (f.vol_ok ? ' (' + volDayTxt(s) + ')' : '')));
+      chips.push(fxPill(s.candle === '양봉', s.candle || '–'));
+      chips.push(fxPill(!f.break, f.break ? '200일선 이탈' : '이탈 없음'));
+    } else {
+      const bbOk = (s.bb_pct_b != null && s.bb_pct_b <= 20) ||
+        (s.bb_lower != null && s.price <= s.bb_lower * 1.03);
+      chips.push(fxPill(!!f.below, '200일선 ' + distTxt));
+      chips.push(fxPill(s.rsi14 != null && s.rsi14 <= 38, 'RSI ' + (s.rsi14 == null ? '–' : s.rsi14)));
+      chips.push(fxPill(bbOk, '볼린저 %B ' + (s.bb_pct_b == null ? '–' : s.bb_pct_b)));
+      chips.push(fxPill(!!f.vol_ok, volTxt + (f.vol_ok ? ' (' + volDayTxt(s) + ')' : '')));
+    }
+    const kw = krwApprox(s.ma200, cur);
+    let sell = '';
+    if (mode === 'f1') {
+      sell = '<div class="cand-sell"><span class="cs-l">매도·손절 기준</span> 200일선 <b>' + money(s.ma200, cur) + '</b>' +
+        (kw ? ' <span class="cs-k">' + esc(kw) + '</span>' : '') +
+        (s.guide ? ' <span class="cs-x">1차 ' + money(s.guide.t1, cur) + ' · 손절 ' + money(s.guide.stop, cur) + '</span>' : '') +
+        '</div>';
+    } else {
+      const up = s.ma200_dist_pct == null ? null : -s.ma200_dist_pct;
+      sell = '<div class="cand-sell"><span class="cs-l">반등 시 매도 목표</span> 200일선 <b>' + money(s.ma200, cur) + '</b>' +
+        (kw ? ' <span class="cs-k">' + esc(kw) + '</span>' : '') +
+        (up != null && up > 0 ? ' <span class="up">+' + up.toFixed(1) + '% 여력</span>' : '') +
+        '</div>';
+    }
+    return '<button class="cand" data-go="' + href(s.market || state.market, 'stock', s.symbol) + '">' +
+      '<div class="cand-top">' +
+        '<div class="cand-l">' +
+          '<div class="cand-nm">' + esc(s.name) + ' <span class="cand-sym">' + esc(s.symbol) + '</span></div>' +
+          '<div class="cand-st"><span class="chip ' + (f.key === 'hit' ? 'buy' : (f.key === 'out' ? 'avoid' : 'watch')) + '">' +
+            esc(f.state || '–') + '</span></div>' +
+        '</div>' +
+        '<div class="cand-r"><div class="cand-px">' + money(s.price, cur) + '</div>' +
+          '<div class="pct ' + pctCls(s.change_pct) + '">' + pct(s.change_pct) + '</div></div>' +
+      '</div>' +
+      '<div class="cand-chips">' + chips.join('') + '</div>' +
+      sell +
+      (f.note ? '<div class="cand-note">' + esc(f.note) + '</div>' : '') +
+    '</button>';
+  }
+
+  function fxSection(title, sub, items, mode, emptyTxt, limit) {
+    const shown = limit ? items.slice(0, limit) : items;
+    let h = '<div class="sec-title"><h2>' + title + '</h2><small>' + esc(sub || (items.length + '종목')) + '</small></div>';
+    if (!items.length) return h + '<div class="empty">' + emptyTxt + '</div>';
+    h += '<div class="candlist">' + shown.map((s) => candCard(s, mode)).join('') + '</div>';
+    if (limit && items.length > limit) {
+      h += '<div class="hint" style="text-align:center;padding:6px 0">' + (items.length - limit) +
+        '개 더 있어요 — 위 탭에서 전체 보기</div>';
+    }
+    return h;
+  }
+
+  function fxGuide(kind) {
+    if (kind === 'f1') {
+      return '<div class="card fxc"><h3>📈 공식 ① 200일선 돌파·지지</h3>' +
+        '<div class="kv"><span class="k">① 자리</span><span class="v">200일선 위에서 지지·안착</span></div>' +
+        '<div class="kv"><span class="k">② 힘</span><span class="v">최근 3거래일 안에 거래량 2배↑(주황 막대)</span></div>' +
+        '<div class="kv"><span class="k">③ 확인</span><span class="v">오늘 양봉으로 막아서면 “딱 맞음”</span></div>' +
+        '<div class="hint" style="margin-top:8px">200일선을 <b>음봉으로 깨고 내려간</b> 종목은 후보에서 빼고 아래 “200일선 이탈 · 관망”에 모았습니다. ' +
+        '매도·손절 기준은 200일선 가격입니다.</div></div>';
+    }
+    return '<div class="card fxc"><h3>🎯 공식 ② 바닥 반등 단타</h3>' +
+      '<div class="kv"><span class="k">① 자리</span><span class="v">200일선 아래로 밀린 종목</span></div>' +
+      '<div class="kv"><span class="k">② RSI</span><span class="v">RSI(14) 38 이하</span></div>' +
+      '<div class="kv"><span class="k">③ 볼린저</span><span class="v">하단 근접 (%B 20 이하 또는 하단 +3% 이내)</span></div>' +
+      '<div class="kv"><span class="k">④ 거래량</span><span class="v">오늘 또는 최근 3거래일 2배↑ 주황 막대</span></div>' +
+      '<div class="hint" style="margin-top:8px">네 개가 같은 날 겹치면 <b>딱 맞음</b>, 하나만 빠지면 <b>거래량·RSI·볼린저 대기</b>로 구분했습니다. ' +
+      '매도 목표는 각 종목의 <b>200일선 가격</b>입니다.</div></div>';
+  }
+
   function viewScreen() {
     const m = marketOf(state.market);
     const list = Object.keys(m.stocks).map((k) => m.stocks[k]);
-    const cands = list.filter((s) => s.filter_count >= 3)
-      .sort((a, b) => (b.filter_count - a.filter_count) || (b.golden_zone - a.golden_zone) || (b.change_pct - a.change_pct));
-    const gz = list.filter((s) => s.golden_zone);
-    let html = '<div class="pagehead"><button class="backbtn" data-go="' + href(state.market, 'home') + '">‹</button>' +
-      '<div><h2>🎯 4중 필터 매수후보</h2><div class="ph-sub">' + (state.market === 'us' ? '미국장' : '국장') +
-      ' · 3개 이상 통과 ' + cands.length + '종목</div></div></div>';
+    const b = fxBuckets(list);
+    const f1c = b.f1hit.length + b.f1wait.length;
+    const f2c = b.f2hit.length + b.f2wait.length;
+    const tab = state.screenTab || 'all';
+    const tabN = { all: f1c + f2c, f1: f1c, f2: f2c };
 
-    html += '<div class="card">' +
-      '<h3>필터 기준 (고수 기법 통합)</h3>' +
+    let html = '<div class="pagehead"><button class="backbtn" data-go="' + href(state.market, 'home') + '">‹</button>' +
+      '<div><h2>🎯 매수후보 · 2대 공식</h2><div class="ph-sub">' + (state.market === 'us' ? '미국장' : '국장') +
+      ' · ① 돌파·지지 ' + f1c + ' · ② 바닥 반등 ' + f2c + '종목</div></div></div>';
+
+    html += '<div class="fx-tabs">' + FX_TABS.map((t) =>
+      '<button class="fx-tab' + (tab === t.id ? ' on' : '') + '" data-fx="' + t.id + '">' +
+      t.label + ' <b>' + (tabN[t.id] || 0) + '</b></button>').join('') + '</div>';
+
+    if (tab === 'f1') {
+      html += fxGuide('f1');
+      html += fxSection('📈 딱 맞음 · 거래량 + 양봉 지지', '지금 바로 추세 타기 자리', b.f1hit, 'f1',
+        '지금은 200일선 위에서 거래량 2배↑ + 양봉을 동시에 만족한 종목이 없습니다.', 0);
+      html += fxSection('⏳ 거래량 · 양봉 대기', '200일선 위에서 지지 중', b.f1wait, 'f1',
+        '200일선 위에서 지지 중인 종목이 없습니다.', 0);
+      if (b.f1near.length) {
+        html += fxSection('↔️ 200일선 바로 아래 · 지지 대기', '3% 이내', b.f1near, 'f1', '', 0);
+      }
+      html += fxSection('🚫 200일선 이탈 · 관망', '음봉으로 깨고 내려온 종목', b.f1out, 'f1',
+        '최근 3거래일 안에 200일선을 음봉으로 깬 종목이 없습니다.', 0);
+    } else if (tab === 'f2') {
+      html += fxGuide('f2');
+      html += fxSection('🎯 딱 맞음 · 4개 동시', 'RSI·볼린저 하단·거래량 2배↑', b.f2hit, 'f2',
+        '지금은 네 조건이 같은 날 겹친 종목이 없습니다.', 0);
+      html += fxSection('⏳ 거래량 · RSI · 볼린저 대기', '하나만 빠진 근접 후보', b.f2wait, 'f2',
+        '근접 후보가 없습니다.', 0);
+      if (b.f2near.length) {
+        html += fxSection('↔️ 근접 2/4', '조건 두 개만 맞은 종목', b.f2near, 'f2', '', 30);
+      }
+    } else {
+      html += '<div class="card fxc" style="padding:12px 14px">' +
+        '<div style="font-size:13.5px;font-weight:800;letter-spacing:-.2px">오늘의 2대 공식 후보</div>' +
+        '<div class="hint" style="margin-top:4px">📈 200일선 돌파·지지 <b>' + f1c + '</b>종목 (딱 맞음 ' + b.f1hit.length + ')' +
+        ' · 🎯 바닥 반등 단타 <b>' + f2c + '</b>종목 (딱 맞음 ' + b.f2hit.length + ')' +
+        ' · 🚫 이탈·관망 ' + b.f1out.length + '종목</div></div>';
+
+      const top = 8;
+      html += fxSection('🎯 바닥 반등 단타 · 딱 맞음', '200일선 아래 반등 자리', b.f2hit, 'f2',
+        '네 조건이 겹친 종목은 없습니다.', 0);
+      html += fxSection('⏳ 바닥 반등 · 대기', '거래량만 기다리는 종목', b.f2wait, 'f2',
+        '없습니다.', top);
+      html += fxSection('📈 200일선 돌파·지지 · 딱 맞음', '거래량 + 양봉 지지', b.f1hit, 'f1',
+        '없습니다.', 0);
+      html += fxSection('⏳ 돌파·지지 · 대기', '200일선 위 지지 중', b.f1wait, 'f1',
+        '없습니다.', top);
+      html += fxSection('🚫 200일선 이탈 · 관망', '음봉으로 깨고 내려온 종목', b.f1out, 'f1',
+        '없습니다.', top);
+
+      const cands = list.filter((s) => s.filter_count >= 3)
+        .sort((a, c) => (c.filter_count - a.filter_count) || (c.golden_zone - a.golden_zone) || (c.change_pct - a.change_pct));
+      const gz = list.filter((s) => s.golden_zone);
+      html += '<div class="sec-title"><h2>🎯 기존 4중 필터 통과</h2><small>3개 이상 ' + cands.length + '종목</small></div>';
+      html += cands.length
+        ? '<div class="card">' + cands.map((s) => rowHtml(s)).join('') + '</div>'
+        : '<div class="empty">지금은 3개 이상 통과한 종목이 없습니다.<br>급등장에서는 쉬는 것도 전략입니다.</div>';
+      html += '<div class="sec-title"><h2>🟡 골든존 종목</h2><small>' + gz.length + '개</small></div>' +
+        (gz.length ? '<div class="card">' + gz.map((s) => rowHtml(s)).join('') + '</div>'
+          : '<div class="empty">골든존 종목이 없습니다.</div>');
+    }
+
+    html += '<div class="card"><h3>📌 4중 필터 기준 (기존)</h3>' +
       '<div class="kv"><span class="k">① 추세·바닥</span><span class="v">200일선 위 + 20일선 &gt; 60일선</span></div>' +
       '<div class="kv"><span class="k">② RSI</span><span class="v">35~50 눌림 (과열 추격 금지)</span></div>' +
       '<div class="kv"><span class="k">③ 거래량·양봉</span><span class="v">20일 평균 80% 이상 + 양봉</span></div>' +
       '<div class="kv"><span class="k">④ 손익비</span><span class="v">200일선 손절폭 6% 이내 + 52주 고점 여유</span></div>' +
-      '<div class="hint" style="margin-top:8px">4개를 모두 통과해야 "매수 후보". 1개라도 빠지면 눌림을 기다리세요.</div>' +
+      '<div class="hint" style="margin-top:8px">4개를 모두 통과해야 “매수 후보”. 2대 공식은 이 위에 얹은 진입 타이밍 규칙입니다.</div>' +
     '</div>';
-
-    if (!cands.length) {
-      html += '<div class="empty">지금은 3개 이상 통과한 종목이 없습니다.<br>급등장에서는 쉬는 것도 전략입니다.</div>';
-    } else {
-      html += '<div class="sec-title"><h2>통과 종목</h2><small>필터 개수 · 골든존 순</small></div><div class="card">' +
-        cands.map((s) => '<button class="row" style="width:100%;text-align:left" data-go="' + href(state.market, 'stock', s.symbol) + '">' +
-          '<div class="rname"><div class="n1">' + esc(s.name) +
-            ' <span class="chip ' + s.tone + '">' + s.filter_count + '/4</span>' +
-            (s.golden_zone ? ' <span class="chip gz">골든존</span>' : '') + '</div>' +
-            '<div class="n2">' + esc(s.symbol) +
-            /* RSI는 바로 아래 배지에 수치+상태로 나오니, 배지가 없을 때만 여기에 적는다 */
-            (s.rsi_state_key && s.rsi_state_key !== 'na' ? '' : ' · RSI ' + (s.rsi14 == null ? '–' : s.rsi14)) +
-            ' · 200일선 ' + (s.ma200_dist_pct == null ? '–' : (s.ma200_dist_pct > 0 ? '+' : '') + s.ma200_dist_pct + '%') + '</div>' +
-            stockBadges(s) + '</div>' +
-          '<div class="rprice"><div class="p1">' + money(s.price, s.currency) + '</div>' +
-          '<div class="p2 ' + pctCls(s.change_pct) + '">' + pct(s.change_pct) + '</div></div></button>').join('') + '</div>';
-    }
-
-    html += '<div class="sec-title"><h2>🟡 골든존 종목</h2><small>' + gz.length + '개</small></div>' +
-      (gz.length ? '<div class="card">' + gz.map((s) => rowHtml(s)).join('') + '</div>' : '<div class="empty">골든존 종목이 없습니다.</div>');
     return html;
   }
 
@@ -717,6 +904,9 @@
       '<div class="hint" style="margin-top:8px">' + esc(s.golden_note || '') + '</div>' +
     '</div>';
 
+    // 2대 매매 공식 (사용자 지정)
+    html += '<div class="card"><h3>🎯 2대 매매 공식</h3>' + fxBlock(s, 'f1') + fxBlock(s, 'f2') + '</div>';
+
     // 볼린저밴드 · 거래량 · 자금흐름
     const cmfV = s.cmf20;
     const cmfTxt = cmfV == null ? '–' : (cmfV > 0 ? '+' : '') + cmfV.toFixed(2) +
@@ -821,6 +1011,9 @@
       '<div class="kv"><span class="k">4중 필터</span><span class="v">추세 · RSI · 거래량/양봉 · 손익비</span></div>' +
       '<div class="kv"><span class="k">볼린저밴드</span><span class="v">20일 단순평균 ±2표준편차(모집단)</span></div>' +
       '<div class="kv"><span class="k">거래량 배수</span><span class="v">오늘 거래량 ÷ 직전 20일 평균 · 2배 이상 = 급증</span></div>' +
+      '<div class="kv"><span class="k">공식 ①</span><span class="v">200일선 위 + 3일 내 거래량 2배↑ + 양봉 지지</span></div>' +
+      '<div class="kv"><span class="k">공식 ②</span><span class="v">200일선 아래 + RSI≤38 + 볼린저 하단 + 거래량 2배↑</span></div>' +
+      '<div class="kv"><span class="k">200일선 이탈</span><span class="v">음봉으로 200일선을 깨고 내려온 종목 = 관망</span></div>' +
       '<div class="kv"><span class="k">CMF(20일)</span><span class="v">자금흐름 합 ÷ 거래량 합 · -1~+1</span></div>' +
       '<div class="kv"><span class="k">목표가</span><span class="v">야후 집계 애널리스트 평균 (없으면 표기 안 함)</span></div>' +
       '<div class="kv"><span class="k">손익비 규칙</span><span class="v">손절 -3.5% · 1차 +4.5% · 2차 +9%</span></div>' +
@@ -1251,8 +1444,14 @@
   /* ---------------------------------------------------------------- events */
   function bindEvents() {
     document.addEventListener('click', (e) => {
-      const t = e.target.closest('[data-go],[data-star],[data-nav],[data-market],[data-search],[data-search-pick],[data-chart],[data-tg]');
+      const t = e.target.closest('[data-go],[data-star],[data-nav],[data-market],[data-search],[data-search-pick],[data-chart],[data-tg],[data-fx]');
       if (!t) return;
+
+      if (t.dataset.fx) {
+        state.screenTab = t.dataset.fx;
+        route();
+        return;
+      }
 
       if (t.dataset.star) {
         toggleWatch(t.dataset.star);

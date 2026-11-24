@@ -286,6 +286,43 @@ def rsi_series(closes, period=14):
     return out
 
 
+def recent_vol_ratios(vols, lookback=5):
+    """최근 거래일별 거래량 배수(직전 20일 평균 대비). [0]=오늘, [1]=어제 …
+
+    주황 막대(2.0배 이상)가 최근 3거래일 안에 있었는지 판정할 때 쓴다.
+    """
+    out = []
+    n = len(vols)
+    for back in range(lookback):
+        i = n - 1 - back
+        if i < 0 or not vols[i]:
+            out.append(None)
+            continue
+        prev = [v for v in vols[max(0, i - 20):i] if v]
+        if len(prev) < 10:
+            out.append(None)
+            continue
+        avg = sum(prev) / len(prev)
+        out.append(round(vols[i] / avg, 2) if avg else None)
+    return out
+
+
+def ma200_break_ago(closes, opens, ma200s, lookback=3):
+    """200일선을 음봉으로 깨고 내려간 날이 최근 lookback거래일 안에 있는지.
+
+    반환: 0=오늘, 1=어제, 2=그제, 없으면 None.
+    조건: 종가 < 200일선(0.5% 여유) · 음봉 · 전일 종가는 200일선 위.
+    """
+    n = len(closes)
+    for back in range(lookback):
+        i = n - 1 - back
+        if i < 1 or ma200s[i] is None:
+            continue
+        if closes[i] < ma200s[i] * 0.995 and opens[i] > closes[i] and closes[i - 1] >= ma200s[i]:
+            return back
+    return None
+
+
 def build_indicators(closes, highs, lows, vols, opens):
     price = closes[-1]
     ma20 = sma(closes, 20)
@@ -335,6 +372,14 @@ def build_indicators(closes, highs, lows, vols, opens):
 
     rsi_txt, rsi_key = rsi_state_of(rsi)
 
+    # 최근 3거래일 거래량 배수 · 200일선 이탈 판정 (2대 공식용)
+    vrec = recent_vol_ratios(vols, 5)
+    v3 = [r for r in vrec[:3] if r is not None]
+    vol_max3 = max(v3) if v3 else None
+    vol_spike_days = [i for i, r in enumerate(vrec[:3]) if r is not None and r >= 2.0]
+    ma200s = sma_series(closes, 200)
+    break_ago = ma200_break_ago(closes, opens, ma200s, 3)
+
     daily = {
         "price": round(price, 2),
         "ma20": round(ma20, 2) if ma20 else None,
@@ -362,6 +407,12 @@ def build_indicators(closes, highs, lows, vols, opens):
         "fake_rally_note": " · ".join(r["detail"] for r in reasons),
         "rsi_state": rsi_txt,
         "rsi_state_key": rsi_key,
+        "vol_ratio_recent": vrec[:3],
+        "vol_max3": round(vol_max3, 2) if vol_max3 is not None else None,
+        "vol_spike_days": vol_spike_days,
+        "vol_spike_3d": bool(vol_spike_days),
+        "ma200_break": break_ago is not None,
+        "ma200_break_ago": break_ago,
     }
     return daily
 
@@ -407,6 +458,129 @@ def judge_filters(d):
     else:
         verdict, tone = "1개 이하 · 진입 보류", "avoid"
     return checks, passed, verdict, tone
+
+
+def formula_judge(d):
+    """사용자가 직접 정한 2대 매매 공식 판정.
+
+    ① 추세 타기 — 200일선 위 + 최근 3거래일 거래량 2배↑(주황 막대) + 200일선 지지·안착.
+       200일선을 음봉으로 깨고 내려온 종목은 제외하고 "200일선 이탈 · 관망"으로 구분.
+    ② 바닥 반등 단타 — 200일선 아래 + RSI(14) <= 38 + 볼린저 하단 근접/%B <= 20
+       + 거래량 급증(2배↑, 근접 1.8배). 완전 일치("딱 맞음")와 대기 상태를 나누고
+       매도 기준은 각 종목의 200일선 가격.
+    """
+    price, ma200, rsi = d["price"], d["ma200"], d["rsi14"]
+    bb_lo, pctb = d.get("bb_lower"), d.get("bb_pct_b")
+    vol_max3 = d.get("vol_max3")
+    days = d.get("vol_spike_days") or []
+    vr = d.get("vol_ratio")
+    bong = d.get("candle") == "양봉"
+    above = bool(ma200 and price >= ma200 * 0.995)
+    below = bool(ma200 and price < ma200)
+    brk = bool(d.get("ma200_break"))
+    vol1 = bool(d.get("vol_spike_3d"))
+    vol_near = bool(vol_max3 is not None and vol_max3 >= 1.8)
+    dist = round((price / ma200 - 1) * 100, 1) if ma200 else None
+
+    def ago_txt(i):
+        return "오늘" if i == 0 else (f"{i}거래일 전" if i else "오늘")
+
+    vol_detail = (f"최근 3거래일 최대 {vol_max3}배" + (f" ({ago_txt(days[0])} 주황 막대)" if days else "")) \
+        if vol_max3 is not None else "거래량 데이터 부족"
+    ma200_detail = (f"200일선 대비 +{dist}% 위" if (above and dist is not None) else
+                    (f"200일선 대비 {dist}% 아래" if dist is not None else "200일선 계산 불가"))
+
+    # ---------------- 공식 ① 추세 타기
+    if not ma200:
+        f1_key, f1_state = "none", "계산 불가"
+        f1_note = "상장 기간이 짧아 200일선을 계산할 수 없습니다."
+    elif brk:
+        ago = d.get("ma200_break_ago")
+        f1_key, f1_state = "out", "200일선 이탈 · 관망"
+        f1_note = ("200일선을 음봉으로 깨고 내려왔어요"
+                   + (f" ({ago_txt(ago)}) — " if ago is not None else " — ")
+                   + "떨어지는 칼날 구간이라 바로 사지 않습니다. 양봉으로 200일선 위에 다시 올라탈 때까지 기다리세요.")
+    elif above and vol1 and bong:
+        f1_key, f1_state = "hit", "딱 맞음 · 지지 확인"
+        f1_note = "200일선 위에서 거래량 2배↑가 나오고 오늘 양봉 — 추세 타기 자리입니다."
+    elif above and vol1 and not bong:
+        f1_key, f1_state = "wait", "양봉 대기"
+        f1_note = "거래량은 터졌지만 오늘 음봉 — 양봉으로 막아서는 날 확인하고 들어가세요."
+    elif above and vol_near:
+        f1_key, f1_state = "wait", "거래량 2배 대기"
+        f1_note = f"200일선 위에서 지지 중이지만 거래량이 {vol_max3}배 — 2배 이상 터지는 날을 기다리세요."
+    elif above:
+        f1_key, f1_state = "wait", "거래량 대기"
+        f1_note = "200일선 위에서 지지 중 — 거래량이 실리는 날을 기다리세요."
+    elif below and dist is not None and dist > -3:
+        f1_key, f1_state = "near", "200일선 아래 · 지지 대기"
+        f1_note = f"200일선 바로 아래({dist}%) — 양봉으로 200일선 위에 올라타는지 지켜보세요."
+    else:
+        f1_key, f1_state = "none", "해당 없음"
+        f1_note = (f"200일선 대비 {dist}% — 추세 타기 구간이 아닙니다." if dist is not None
+                   else "200일선 데이터 부족")
+
+    f1_checks = [
+        {"key": "ma200", "label": "200일선 위", "ok": bool(above), "detail": ma200_detail},
+        {"key": "volume", "label": "거래량 2배↑(3일)", "ok": vol1, "detail": vol_detail},
+        {"key": "candle", "label": "양봉 지지", "ok": bool(bong), "detail": f"오늘 {d.get('candle')}"},
+        {"key": "hold", "label": "이탈 아님", "ok": not brk,
+         "detail": "200일선 위 유지" if not brk else "최근 3거래일 안에 200일선을 음봉으로 이탈"},
+    ]
+
+    # ---------------- 공식 ② 바닥 반등 단타
+    rsi_ok = bool(rsi is not None and rsi <= 38)
+    bb_ok = bool((pctb is not None and pctb <= 20) or (bb_lo and price <= bb_lo * 1.03))
+    hit2 = vol1
+    vol2_ok = bool(vol1 or vol_near)
+    cnt = sum([below, rsi_ok, bb_ok, hit2])
+    bb_detail = (f"%B {pctb} · 하단 {bb_lo}" if pctb is not None and bb_lo else "볼린저 데이터 부족")
+    rsi_detail = (f"RSI {rsi} — 38 이하" if rsi_ok else f"RSI {rsi if rsi is not None else '–'} — 38 초과") \
+        if rsi is not None else "RSI 계산 불가"
+    if below and rsi_ok and bb_ok and hit2:
+        f2_key, f2_state = "hit", "딱 맞음 · 4개 동시"
+        f2_note = "200일선 아래 · RSI 38 이하 · 볼린저 하단 · 거래량 2배↑ — 4개가 같은 날 겹쳤습니다. 반등 시 200일선을 매도 목표로 보세요."
+    elif below and rsi_ok and bb_ok:
+        f2_key, f2_state = "wait", "거래량 대기"
+        f2_note = (f"싸진 자리(RSI {rsi} · 볼린저 하단)는 맞는데 거래량이 {vol_max3 if vol_max3 is not None else '–'}배 — "
+                   "2배↑ 주황 막대가 터지는 날이 진입 자리입니다.")
+    elif below and bb_ok and hit2 and not rsi_ok:
+        f2_key, f2_state = "wait", "RSI 대기"
+        f2_note = f"볼린저 하단 + 거래량은 왔지만 RSI {rsi} — 38 이하로 식으면 다시 보세요."
+    elif below and rsi_ok and hit2 and not bb_ok:
+        f2_key, f2_state = "wait", "볼린저 대기"
+        f2_note = "RSI·거래량은 왔지만 볼린저 하단까지 밀리지 않았습니다 — 조금 더 눌림을 기다리세요."
+    elif below and cnt >= 2:
+        f2_key, f2_state = "near", f"근접 {cnt}/4"
+        f2_note = "조건 일부만 맞았습니다 — 4개가 겹치는 날 다시 확인하세요."
+    else:
+        f2_key, f2_state = "none", "해당 없음"
+        f2_note = ("200일선 위 — 바닥 반등 구간이 아닙니다." if (ma200 and not below) else
+                   (f"조건 {cnt}/4 — 아직 아닙니다." if ma200 else "200일선 데이터 부족"))
+
+    f2_checks = [
+        {"key": "ma200", "label": "200일선 아래", "ok": bool(below), "detail": ma200_detail},
+        {"key": "rsi", "label": "RSI 38 이하", "ok": rsi_ok, "detail": rsi_detail},
+        {"key": "bb", "label": "볼린저 하단", "ok": bb_ok,
+         "detail": (bb_detail + (" · 하단 근접" if bb_ok else " · 밴드 안쪽") if pctb is not None else "볼린저 데이터 부족")},
+        {"key": "volume", "label": "거래량 2배↑", "ok": hit2, "detail": vol_detail},
+    ]
+
+    sell = {
+        "ma200": round(ma200, 4) if ma200 else None,
+        "dist_pct": dist,
+        "note": "반등 시 200일선 근처 매도",
+    }
+    return {
+        "f1": {"state": f1_state, "key": f1_key, "note": f1_note,
+               "above": above, "below": below, "break": brk, "vol_ok": vol1,
+               "vol_max3": vol_max3, "count": sum(1 for c in f1_checks if c["ok"]),
+               "checks": f1_checks, "sell": sell},
+        "f2": {"state": f2_state, "key": f2_key, "note": f2_note,
+               "above": above, "below": below, "vol_ok": hit2, "vol_near": vol2_ok,
+               "vol_max3": vol_max3, "count": cnt,
+               "checks": f2_checks, "sell": sell},
+    }
 
 
 def golden_zone(d):
@@ -553,6 +727,7 @@ def build_market(key, themes, symbols, digits):
             sd = summary.get("summaryDetail") or {}
 
             checks, passed, verdict, tone = judge_filters(d)
+            fm = formula_judge(d)
             gz, gz_reason = golden_zone(d)
             an = analyst_block(summary, d["price"])
 
@@ -578,6 +753,10 @@ def build_market(key, themes, symbols, digits):
                 "high52": d["high52"], "low52": d["low52"], "pos52": d["pos52"],
                 "vol_ratio": d["vol_ratio"], "vol_avg20": d["vol_avg20"],
                 "vol_spike": d["vol_spike"], "candle": d["candle"],
+                "vol_ratio_recent": d["vol_ratio_recent"], "vol_max3": d["vol_max3"],
+                "vol_spike_3d": d["vol_spike_3d"], "vol_spike_days": d["vol_spike_days"],
+                "ma200_break": d["ma200_break"], "ma200_break_ago": d["ma200_break_ago"],
+                "f1": fm["f1"], "f2": fm["f2"],
                 "bb_upper": d["bb_upper"], "bb_mid": d["bb_mid"], "bb_lower": d["bb_lower"],
                 "bb_pos": d["bb_pos"], "bb_pos_key": d["bb_pos_key"], "bb_pct_b": d["bb_pct_b"],
                 "cmf20": d["cmf20"], "chg5": d["chg5"],

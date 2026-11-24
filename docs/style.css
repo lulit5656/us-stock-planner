@@ -287,3 +287,34 @@ h1,h2,h3,h4,p{margin:0}
   z-index:80;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap;
 }
 .toast.show{opacity:1}
+
+/* ---------- 매수후보 2대 공식 ---------- */
+.fx-tabs{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 8px;-webkit-overflow-scrolling:touch}
+.fx-tab{flex:0 0 auto;font-size:12px;font-weight:800;color:#4b5563;background:#f2f3f5;border-radius:11px;padding:8px 11px;white-space:nowrap;letter-spacing:-.2px}
+.fx-tab b{font-size:11px;color:#9aa1ad;margin-left:2px}
+.fx-tab.on{background:#111827;color:#fff}
+.fx-tab.on b{color:#ffd479}
+.candlist{display:flex;flex-direction:column;gap:8px}
+.cand{width:100%;text-align:left;background:#fff;border:1px solid var(--line);border-radius:14px;padding:11px 12px;display:block}
+.cand:active{background:#fafbfc}
+.cand-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.cand-l{min-width:0}
+.cand-nm{font-size:14.5px;font-weight:800;letter-spacing:-.3px}
+.cand-sym{font-size:10.5px;font-weight:700;color:#9aa1ad;font-family:ui-monospace,Menlo,monospace}
+.cand-st{margin-top:3px}
+.cand-r{text-align:right;flex:0 0 auto}
+.cand-px{font-size:14.5px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.3px}
+.cand-r .pct{font-size:11.5px;font-weight:800}
+.cand-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}
+.cand-chips .chip{font-size:9.5px;padding:2px 7px;line-height:1.5}
+.cand-sell{margin-top:8px;background:#fffaf0;border-radius:9px;padding:6px 9px;font-size:11.5px;color:#7c5a10;line-height:1.45}
+.cand-sell .cs-l{font-weight:800;color:#b45309;margin-right:2px}
+.cand-sell b{font-size:12.5px;color:#111827;font-variant-numeric:tabular-nums}
+.cand-sell .cs-k{color:#8a8f98;font-size:10.5px}
+.cand-sell .cs-x{color:#6b7280;font-size:10.5px;margin-left:2px}
+.cand-note{font-size:11px;color:#7b8290;margin-top:6px;line-height:1.45}
+.fxc h3{margin-bottom:2px}
+.fxb{padding:2px 0 10px;border-bottom:1px dashed #f0f1f4;margin-bottom:10px}
+.fxb:last-child{border-bottom:0;margin-bottom:0;padding-bottom:0}
+.fxb-h{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0}
+.fxb-h b{font-size:12.5px}
