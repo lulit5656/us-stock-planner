@@ -608,7 +608,7 @@
       chips.push(fxPill(!!f.above, '200일선 ' + distTxt));
       chips.push(fxPill(!!f.vol_ok, volTxt + (f.vol_ok ? ' (' + volDayTxt(s) + ')' : '')));
       chips.push(fxPill(s.candle === '양봉', s.candle || '–'));
-      chips.push(fxPill(!f.break, f.break ? '200일선 이탈' : '이탈 없음'));
+      chips.push(fxPill(!!f.above || !f.break, f.break ? (f.above ? '깼다가 회복' : '200일선 이탈') : '이탈 없음'));
     } else {
       const bbOk = (s.bb_pct_b != null && s.bb_pct_b <= 20) ||
         (s.bb_lower != null && s.price <= s.bb_lower * 1.03);
