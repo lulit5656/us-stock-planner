@@ -14,6 +14,7 @@
     view: 'home',
     arg: null,
     chart: null,
+    charts: null,
     colorUp: '#e0342b',
     colorDown: '#1673e6',
   };
@@ -285,6 +286,7 @@
     state.market = r.market;
     state.view = r.view;
     state.arg = r.arg;
+    if (state.charts) { state.charts.forEach((c) => { try { c.remove(); } catch (e) { /* ignore */ } }); state.charts = null; }
     if (state.chart) { try { state.chart.remove(); } catch (e) {} state.chart = null; }
     if (state.ro) { try { state.ro.disconnect(); } catch (e) {} state.ro = null; }
     renderTop();
@@ -854,6 +856,7 @@
     const bars = [];
     const avgLine = [];
     const ratios = {};
+    const byTime = {};
     for (let i = 0; i < candles.length; i++) {
       const v = candles[i].volume || 0;
       const from = Math.max(0, i - 20);
@@ -863,6 +866,7 @@
       const avg = cnt ? sum / cnt : null;
       const spike = cnt >= 20 && avg > 0 && v / avg >= 2;
       if (cnt >= 20 && avg > 0) ratios[candles[i].time] = +(v / avg).toFixed(1);
+      byTime[candles[i].time] = { v: v, r: ratios[candles[i].time] || null };
       bars.push({
         time: candles[i].time,
         value: v,
@@ -870,7 +874,7 @@
       });
       if (cnt >= 20 && avg > 0) avgLine.push({ time: candles[i].time, value: +avg.toFixed(0) });
     }
-    return { bars, avgLine, ratios };
+    return { bars, avgLine, ratios, byTime };
   }
 
   function smaPoints(candles, n) {
@@ -926,8 +930,9 @@
   }
 
   function drawChart(el, hist, sym) {
-    if (state.chart) { try { state.chart.remove(); } catch (e) {} state.chart = null; }
-    if (state.ro) { try { state.ro.disconnect(); } catch (e) {} state.ro = null; }
+    if (state.charts) { state.charts.forEach((c) => { try { c.remove(); } catch (e) { /* ignore */ } }); state.charts = null; }
+    if (state.chart) { try { state.chart.remove(); } catch (e) { /* ignore */ } state.chart = null; }
+    if (state.ro) { try { state.ro.disconnect(); } catch (e) { /* ignore */ } state.ro = null; }
     el.innerHTML = '';
     const S = seriesFor(hist);
     if (!S) { el.innerHTML = '<div class="empty">차트 데이터가 없습니다.</div>'; return; }
@@ -936,38 +941,57 @@
     const elf = window.LightweightCharts;
     if (!elf) { el.innerHTML = '<div class="empty">차트 라이브러리를 불러오지 못했습니다.</div>'; return; }
 
-    const chart = elf.createChart(el, {
-      width: el.clientWidth || 320,
-      height: 320,
+    /* 가격 패널 + 거래량 패널을 따로 두고 시간축만 동기화한다 (거래량이 가격 축을 침범하지 않게) */
+    const hostP = document.createElement('div');
+    hostP.className = 'chart-pane chart-pane-price';
+    const hostV = document.createElement('div');
+    hostV.className = 'chart-pane chart-pane-vol';
+    el.appendChild(hostP);
+    el.appendChild(hostV);
+
+    const W = el.clientWidth || 320;
+    const base = {
+      width: W,
       layout: { background: { type: 'solid', color: '#ffffff' }, textColor: '#8b93a1', fontSize: 10, fontFamily: 'inherit' },
-      grid: { vertLines: { color: '#f4f5f7' }, horzLines: { color: '#f4f5f7' } },
-      rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.24 } },
-      timeScale: { borderVisible: false, rightOffset: 4, fixLeftEdge: true },
       crosshair: {
         mode: elf.CrosshairMode.Normal,
         vertLine: { color: '#c9ced6', width: 1, style: 2, labelBackgroundColor: '#111827' },
         horzLine: { color: '#c9ced6', width: 1, style: 2, labelBackgroundColor: '#111827' },
       },
+    };
+
+    const chart = elf.createChart(hostP, Object.assign({}, base, {
+      height: 236,
+      grid: { vertLines: { color: '#f4f5f7' }, horzLines: { color: '#f4f5f7' } },
+      rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.06 } },
+      timeScale: { visible: false, rightOffset: 4, fixLeftEdge: true },
       localization: { priceFormatter: (v) => axisMoney(v, cur) },
-    });
+    }));
+    const volChart = elf.createChart(hostV, Object.assign({}, base, {
+      height: 86,
+      grid: { vertLines: { color: '#f4f5f7' }, horzLines: { visible: false } },
+      rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0 } },
+      timeScale: { borderVisible: false, rightOffset: 4, fixLeftEdge: true },
+      localization: { priceFormatter: (v) => compact(v) },
+    }));
     state.chart = chart;
+    state.charts = [chart, volChart];
 
     const pf = { type: 'price', precision: isKR ? 0 : 2, minMove: isKR ? 1 : 0.01 };
 
-    // 거래량 (하단 22%) — 20일 평균 2배 이상은 주황색 강조
-    const volBar = chart.addHistogramSeries({
-      priceFormat: { type: 'volume' }, priceScaleId: '', priceLineVisible: false, lastValueVisible: false,
+    /* 거래량 패널 — 20일 평균 2배 이상 터진 날은 주황색 */
+    const volBar = volChart.addHistogramSeries({
+      priceFormat: { type: 'volume' }, priceLineVisible: false, lastValueVisible: false,
     });
-    volBar.priceScale().applyOptions({ scaleMargins: { top: 0.78, bottom: 0 } });
     volBar.setData(S.vol.bars);
-    const volAvg = chart.addLineSeries({
-      color: 'rgba(17,24,39,.35)', lineWidth: 1, lineStyle: 2, priceScaleId: '',
+    const volAvg = volChart.addLineSeries({
+      color: 'rgba(17,24,39,.35)', lineWidth: 1, lineStyle: 2,
       priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
       priceFormat: { type: 'volume' },
     });
-    volAvg.priceScale().applyOptions({ scaleMargins: { top: 0.78, bottom: 0 } });
     volAvg.setData(S.vol.avgLine);
 
+    /* 가격 패널 */
     const candle = chart.addCandlestickSeries({
       upColor: state.colorUp, downColor: state.colorDown,
       borderUpColor: state.colorUp, borderDownColor: state.colorDown,
@@ -976,15 +1000,14 @@
     });
     candle.setData(S.candles);
 
-    let ma20 = null;
     if (!chartState.bb) {              /* 볼린저 중심선이 20일선이라 중복 시 생략 */
-      ma20 = chart.addLineSeries({ color: '#b7bec9', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: pf });
+      const ma20 = chart.addLineSeries({ color: '#b7bec9', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: pf });
       ma20.setData(S.ma20);
     }
     const ma60 = chart.addLineSeries({ color: '#a78bfa', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: pf });
     ma60.setData(S.ma60);
 
-    // 볼린저밴드 토글
+    /* 볼린저밴드 토글 */
     if (chartState.bb && S.bb.up.length) {
       const bbUp = chart.addLineSeries({ color: '#a855f7', lineWidth: 1, lineStyle: 2, title: '볼린저 상단', priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false, priceFormat: pf });
       bbUp.setData(S.bb.up);
@@ -994,11 +1017,8 @@
       bbLo.setData(S.bb.lo);
     }
 
-    let ma200 = null;
-    let zUp = null;
-    let zDn = null;
     if (chartState.ma) {
-      ma200 = chart.addLineSeries({
+      const ma200 = chart.addLineSeries({
         color: '#f59e0b', lineWidth: 2, priceLineVisible: false, lastValueVisible: true,
         title: S.isWeek ? '40주선' : '200일선', priceFormat: pf,
       });
@@ -1006,13 +1026,25 @@
       if (chartState.zone && S.ma200.length) {
         const up = S.ma200.map((p) => ({ time: p.time, value: +(p.value * 1.03).toFixed(4) }));
         const dn = S.ma200.map((p) => ({ time: p.time, value: +(p.value * 0.97).toFixed(4) }));
-        zUp = chart.addLineSeries({ color: 'rgba(245,158,11,.55)', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: pf });
+        const zUp = chart.addLineSeries({ color: 'rgba(245,158,11,.55)', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: pf });
         zUp.setData(up);
-        zDn = chart.addLineSeries({ color: 'rgba(245,158,11,.55)', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: pf });
+        const zDn = chart.addLineSeries({ color: 'rgba(245,158,11,.55)', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: pf });
         zDn.setData(dn);
       }
     }
     chart.timeScale().fitContent();
+    volChart.timeScale().fitContent();
+
+    /* 두 패널 스크롤·확대 동기화 */
+    let syncing = false;
+    const link = (a, b) => a.timeScale().subscribeVisibleLogicalRangeChange((r) => {
+      if (syncing || !r) return;
+      syncing = true;
+      try { b.timeScale().setVisibleLogicalRange(r); } catch (e) { /* ignore */ }
+      syncing = false;
+    });
+    link(chart, volChart);
+    link(volChart, chart);
 
     const legend = document.getElementById('chartLegend');
     const setLegend = (c) => {
@@ -1027,10 +1059,10 @@
           (chartState.bb && bbU != null ? ' · 볼린저 <b style="color:#7c3aed">' + axisMoney(bbL, cur) + '~' + axisMoney(bbU, cur) + '</b>' : '');
         return;
       }
-      const r = S.vol.ratios[c.time];
+      const info = S.vol.byTime[c.time];
       legend.innerHTML = esc(c.time) + '  시 ' + axisMoney(c.open, cur) + ' · 고 ' + axisMoney(c.high, cur) +
         ' · 저 ' + axisMoney(c.low, cur) + ' · 종 <b>' + axisMoney(c.close, cur) + '</b>' +
-        (r ? ' · 거래량 <b' + (r >= 2 ? ' style="color:#f97316"' : '') + '>' + r + '배</b>' : '');
+        (info ? ' · 거래량 ' + compact(info.v) + (info.r ? ' (' + info.r + '배)' : '') : '');
     };
     chart.subscribeCrosshairMove((param) => {
       if (!param || !param.time || !param.seriesData) { setLegend(null); return; }
@@ -1040,7 +1072,10 @@
     setLegend(null);
 
     const ro = new ResizeObserver(() => {
-      if (el.clientWidth) chart.applyOptions({ width: el.clientWidth });
+      const w = el.clientWidth;
+      if (!w) return;
+      chart.applyOptions({ width: w });
+      volChart.applyOptions({ width: w });
     });
     ro.observe(el);
     state.ro = ro;
