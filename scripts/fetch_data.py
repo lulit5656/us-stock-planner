@@ -491,10 +491,11 @@ def formula_judge(d):
                     (f"200일선 대비 {dist}% 아래" if dist is not None else "200일선 계산 불가"))
 
     # ---------------- 공식 ① 추세 타기
+    recovered = bool(brk and above)   # 200일선을 깼다가 다시 위로 올라온 경우
     if not ma200:
         f1_key, f1_state = "none", "계산 불가"
         f1_note = "상장 기간이 짧아 200일선을 계산할 수 없습니다."
-    elif brk:
+    elif brk and below:
         ago = d.get("ma200_break_ago")
         f1_key, f1_state = "out", "200일선 이탈 · 관망"
         f1_note = ("200일선을 음봉으로 깨고 내려왔어요"
@@ -502,7 +503,8 @@ def formula_judge(d):
                    + "떨어지는 칼날 구간이라 바로 사지 않습니다. 양봉으로 200일선 위에 다시 올라탈 때까지 기다리세요.")
     elif above and vol1 and bong:
         f1_key, f1_state = "hit", "딱 맞음 · 지지 확인"
-        f1_note = "200일선 위에서 거래량 2배↑가 나오고 오늘 양봉 — 추세 타기 자리입니다."
+        f1_note = (("200일선을 깼다가 오늘 양봉으로 다시 올라탄 자리 — " if recovered else "") +
+                   "200일선 위에서 거래량 2배↑가 나오고 오늘 양봉 — 추세 타기 자리입니다.")
     elif above and vol1 and not bong:
         f1_key, f1_state = "wait", "양봉 대기"
         f1_note = "거래량은 터졌지만 오늘 음봉 — 양봉으로 막아서는 날 확인하고 들어가세요."
@@ -524,10 +526,11 @@ def formula_judge(d):
         {"key": "ma200", "label": "200일선 위", "ok": bool(above), "detail": ma200_detail},
         {"key": "volume", "label": "거래량 2배↑(3일)", "ok": vol1, "detail": vol_detail},
         {"key": "candle", "label": "양봉 지지", "ok": bool(bong), "detail": f"오늘 {d.get('candle')}"},
-        {"key": "hold", "label": "이탈 아님", "ok": not brk,
+        {"key": "hold", "label": "이탈 아님", "ok": bool((not brk) or above),
          "detail": ("200일선 위 유지" if (not brk and above) else
-                    ("200일선 아래 — 200일선을 깬 음봉은 아님" if not brk else
-                     "최근 3거래일 안에 200일선을 음봉으로 이탈"))},
+                    ("깼다가 200일선 위로 회복" if recovered else
+                     ("200일선 아래 — 200일선을 깬 음봉은 아님" if not brk else
+                      "최근 3거래일 안에 200일선을 음봉으로 이탈")))},
     ]
 
     # ---------------- 공식 ② 바닥 반등 단타
