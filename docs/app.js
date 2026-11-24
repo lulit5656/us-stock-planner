@@ -41,14 +41,25 @@
   }
   function fx() { return (state.data && state.data.meta && state.data.meta.usd_krw) || 1350; }
 
+  function group3(s) {
+    const neg = s.charAt(0) === '-';
+    if (neg) s = s.slice(1);
+    const parts = s.split('.');
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return (neg ? '-' : '') + parts.join('.');
+  }
+  function fixed(v, d) {
+    const p = Math.pow(10, d);
+    return (Math.round(Number(v) * p) / p).toFixed(d);
+  }
   function money(v, cur) {
-    if (v == null || Number.isNaN(v)) return '–';
-    if (cur === 'KRW') return Math.round(v).toLocaleString('ko-KR') + '원';
-    return '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (v == null || Number.isNaN(Number(v))) return '–';
+    if (cur === 'KRW') return group3(String(Math.round(Number(v)))) + '원';
+    return '$' + group3(fixed(v, 2));
   }
   function axisMoney(v, cur) {
-    if (cur === 'KRW') return Math.round(v).toLocaleString('ko-KR');
-    return Number(v).toFixed(2);
+    if (cur === 'KRW') return group3(String(Math.round(Number(v))));
+    return group3(fixed(v, 2));
   }
   function krwApprox(v, cur) {
     if (cur === 'KRW' || v == null) return '';
@@ -259,7 +270,7 @@
     if (!state.data) {
       html = '<div class="empty">데이터를 불러오는 중…</div>';
     } else if (state.view === 'theme') {
-      html = viewTheme(app, r.arg);
+      html = viewTheme(r.arg);
     } else if (state.view === 'stock') {
       html = viewStock(r.arg);
     } else if (state.view === 'screen') {
@@ -292,9 +303,7 @@
     if (m && m.indices) {
       strip.innerHTML = m.indices.map((ix) => {
         const isFx = ix.symbol === 'KRW=X';
-        const price = isFx && state.market === 'us'
-          ? '₩' + Number(ix.price).toFixed(2)
-          : (isFx ? '₩' + Number(ix.price).toFixed(2) : Number(ix.price).toLocaleString('en-US', { maximumFractionDigits: 2 }));
+        const price = isFx ? '₩' + axisMoney(ix.price, 'USD') : axisMoney(ix.price, 'USD');
         return '<div class="ix"><div class="ix-name">' + esc(ix.name) + '</div>' +
           '<div class="ix-price">' + esc(price) + '</div>' +
           '<div class="ix-chg ' + pctCls(ix.change_pct) + '">' + pct(ix.change_pct) + '</div></div>';
@@ -313,6 +322,18 @@
     const hot = themes[0];
     const watched = state.watch.map(findStock).filter(Boolean)
       .filter((s) => s.market === state.market);
+
+    const upN = list.filter((s) => s.change_pct > 0).length;
+    const downN = list.filter((s) => s.change_pct < 0).length;
+    const topS = list.slice().sort((a, b) => b.change_pct - a.change_pct)[0];
+    const summary =
+      '<div class="card" style="padding:12px 14px">' +
+        '<div style="font-size:13.5px;font-weight:700;letter-spacing:-.2px">' +
+          (hot ? hot.emoji + ' 오늘 ' + (state.market === 'us' ? '미장' : '국장') + '은 <span class="' + pctCls(hot.avg_change) + '">' + esc(hot.name) + ' ' + pct(hot.avg_change) + '</span>이 이끌었어요' : '테마 데이터 준비 중') +
+        '</div>' +
+        '<div class="hint" style="margin-top:3px">상승 ' + upN + ' · 하락 ' + downN + ' · 골든존 ' + gz + '개' +
+          (topS ? ' · 1위 ' + esc(topS.name) + ' ' + pct(topS.change_pct) : '') + '</div>' +
+      '</div>';
 
     const cards =
       '<div class="cards">' +
@@ -347,6 +368,7 @@
         '<div class="hint">테마 평균 등락률 순 · ' + (state.market === 'us' ? '미국장' : '국장') + ' ' + list.length + '종목</div>' +
         '<button class="chip" id="btnReload" style="font-size:11px">⟳ 새로고침</button>' +
       '</div>' +
+      summary +
       cards +
       '<div class="sec-title"><h2>오늘의 뜨거운 테마</h2><small>클릭 → 대장주·관련주</small></div>' +
       rows +
@@ -609,7 +631,7 @@
       '<div class="kv"><span class="k">출처</span><span class="v">' + esc(meta.source) + '</span></div>' +
       '<div class="kv"><span class="k">갱신</span><span class="v">' + esc(meta.generated_at_kst) + '</span></div>' +
       '<div class="kv"><span class="k">지연</span><span class="v">' + esc(meta.delay_note) + '</span></div>' +
-      '<div class="kv"><span class="k">환율</span><span class="v">1달러 = ' + Number(meta.usd_krw).toLocaleString('ko-KR') + '원</span></div>' +
+      '<div class="kv"><span class="k">환율</span><span class="v">1달러 = ' + money(meta.usd_krw, 'KRW') + '</span></div>' +
       '<div class="kv"><span class="k">종목 수</span><span class="v">미국 ' + Object.keys(state.data.markets.us.stocks).length +
         ' · 국장 ' + Object.keys(state.data.markets.kr.stocks).length + '</span></div>' +
       '</div>' +

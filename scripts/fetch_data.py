@@ -328,8 +328,11 @@ def master_guide(d, price, gz=False):
     elif ma200 and price > ma200 * 1.10:
         out["entry_note"] = (f"지금은 200일선보다 {(price/ma200-1)*100:.1f}% 위 — 추격 매수 대신 "
                              f"200일선 부근({ma200:,.2f}) 눌림 대기")
-    elif ma200:
+    elif ma200 and price >= ma200 * 0.97:
         out["entry_note"] = "200일선 부근 — 골든존 분할 진입 가능 구간"
+    elif ma200:
+        out["entry_note"] = (f"200일선 아래({(price/ma200-1)*100:.1f}%) 하락 추세 — "
+                             "반등(양봉·거래량) 확인 전에는 진입 금지, 관찰만")
     else:
         out["entry_note"] = "200일선 데이터 부족 — 차트 흐름만 참고"
     return out
