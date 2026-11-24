@@ -7,6 +7,7 @@
 """
 import json
 import os
+import re
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCS = os.path.join(ROOT, "docs")
@@ -31,7 +32,8 @@ def main():
         if fn.endswith(".json"):
             hist[fn[:-5]] = json.loads(read(os.path.join(hist_dir, fn)))
 
-    html = html.replace('<link rel="stylesheet" href="style.css">', "<style>\n" + css + "\n</style>")
+    # index.html 은 캐시 갱신용 ?v= 를 달고 있으므로 정규식으로 바꾼다
+    html = re.sub(r'<link rel="stylesheet" href="style\.css[^"]*">', "<style>\n" + css + "\n</style>", html, count=1)
     html = html.replace('<link rel="manifest" href="manifest.json">\n', "")
     html = html.replace('<link rel="icon" href="icon.svg" type="image/svg+xml">\n', "")
     html = html.replace('<link rel="apple-touch-icon" href="icon.svg">\n', "")
@@ -39,7 +41,7 @@ def main():
                         "<script>\n" + lw + "\n</script>")
     snap = ("<script>window.__SNAP__=" + data + ";\nwindow.__HIST__=" +
             json.dumps(hist, ensure_ascii=False, separators=(",", ":")) + ";</script>")
-    html = html.replace('<script src="app.js"></script>', snap + "\n<script>\n" + app + "\n</script>")
+    html = re.sub(r'<script src="app\.js[^"]*"></script>', lambda m: snap + "\n<script>\n" + app + "\n</script>", html, count=1)
 
     os.makedirs(OUT_DIR, exist_ok=True)
     out = os.path.join(OUT_DIR, "global-stock-planner.html")
