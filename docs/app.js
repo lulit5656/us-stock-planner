@@ -596,6 +596,26 @@
     return days[0] === 0 ? '오늘' : days[0] + '거래일 전';
   }
 
+  function candThemeBadge(s) {
+    const m = marketOf(s.market || state.market);
+    const hits = [];
+    (m.themes || []).forEach((t) => {
+      const me = (t.stocks || []).find((x) => x.symbol === s.symbol);
+      if (!me) return;
+      const lead = (t.stocks || []).find((x) => x.role === '대장');
+      hits.push({ t, me, lead });
+    });
+    if (!hits.length) return '';
+    hits.sort((a, b) => (a.me.role === '대장' ? 0 : 1) - (b.me.role === '대장' ? 0 : 1));
+    const h = hits[0];
+    if (h.me.role === '대장') {
+      return '<span class="badge leader">👑 ' + esc(h.t.name) + ' 대장주</span>';
+    }
+    const leadS = h.lead ? (m.stocks[h.lead.symbol] || h.lead) : null;
+    const leadTxt = leadS ? (' · 대장 ' + esc(leadS.name) + ' ' + pct(leadS.change_pct)) : '';
+    return '<span class="badge member">' + esc(h.t.emoji || '🏷️') + ' ' + esc(h.t.name) + leadTxt + '</span>';
+  }
+
   /* 후보 카드: 조건 충족 여부(200일선·거래량·RSI·볼린저) + 매도 기준(200일선 가격)을 한 카드에 */
   function candCard(s, mode) {
     const cur = s.currency;
@@ -636,7 +656,7 @@
         '<div class="cand-l">' +
           '<div class="cand-nm">' + esc(s.name) + ' <span class="cand-sym">' + esc(s.symbol) + '</span></div>' +
           '<div class="cand-st"><span class="chip ' + (f.key === 'hit' ? 'buy' : (f.key === 'out' ? 'avoid' : 'watch')) + '">' +
-            esc(f.state || '–') + '</span></div>' +
+            esc(f.state || '–') + '</span> ' + candThemeBadge(s) + '</div>' +
         '</div>' +
         '<div class="cand-r"><div class="cand-px">' + money(s.price, cur) + '</div>' +
           '<div class="pct ' + pctCls(s.change_pct) + '">' + pct(s.change_pct) + '</div></div>' +
