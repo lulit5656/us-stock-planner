@@ -697,6 +697,30 @@
       '매도 목표는 각 종목의 <b>200일선 가격</b>입니다.</div></div>';
   }
 
+  function findCatchup(m) {
+    const out = [];
+    const seen = {};
+    (m.themes || []).forEach((t) => {
+      const leadRef = (t.stocks || []).find((x) => x.role === '대장');
+      if (!leadRef) return;
+      const lead = m.stocks[leadRef.symbol] || leadRef;
+      if (lead.change_pct == null || lead.change_pct < 1.5) return;
+      (t.stocks || []).forEach((x) => {
+        if (x.role === '대장' || seen[x.symbol]) return;
+        const s = m.stocks[x.symbol];
+        if (!s || s.change_pct == null) return;
+        const gap = lead.change_pct - s.change_pct;
+        if (gap < 1.5) return;
+        const okPos = s.golden_zone || (s.ma200_dist_pct != null && s.ma200_dist_pct >= -3) || (s.rsi14 != null && s.rsi14 <= 50);
+        if (!okPos) return;
+        seen[x.symbol] = true;
+        out.push({ s, gap, t, lead });
+      });
+    });
+    out.sort((a, b) => b.gap - a.gap);
+    return out;
+  }
+
   function viewScreen() {
     const m = marketOf(state.market);
     const list = Object.keys(m.stocks).map((k) => m.stocks[k]);
@@ -740,6 +764,15 @@
         '<div class="hint" style="margin-top:4px">📈 200일선 돌파·지지 <b>' + f1c + '</b>종목 (딱 맞음 ' + b.f1hit.length + ')' +
         ' · 🎯 바닥 반등 단타 <b>' + f2c + '</b>종목 (딱 맞음 ' + b.f2hit.length + ')' +
         ' · 🚫 이탈·관망 ' + b.f1out.length + '종목</div></div>';
+
+      const catchup = findCatchup(m);
+      if (catchup.length) {
+        html += '<div class="sec-title"><h2>🔥 대장주 따라잡기</h2><small>대장 +1.5%↑ · 덜 오른 후발주</small></div>';
+        html += '<div class="candlist">' + catchup.slice(0, 5).map((c) => {
+          const mode = (c.s.ma200_dist_pct != null && c.s.ma200_dist_pct < 0) ? 'f2' : 'f1';
+          return candCard(c.s, mode);
+        }).join('') + '</div>';
+      }
 
       const top = 8;
       html += fxSection('🎯 바닥 반등 단타 · 딱 맞음', '200일선 아래 반등 자리', b.f2hit, 'f2',
