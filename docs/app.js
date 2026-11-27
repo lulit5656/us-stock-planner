@@ -1577,6 +1577,17 @@
   /* ---------------------------------------------------------------- boot */
   async function boot() {
     state.watch = loadWatch();
+    try {
+      const qs = new URLSearchParams(location.search);
+      const addW = qs.get('add_watch');
+      if (addW) {
+        addW.split(',').map((s) => s.trim()).filter(Boolean).forEach((sym) => {
+          if (state.watch.indexOf(sym) === -1) state.watch.push(sym);
+        });
+        saveWatch();
+        history.replaceState(null, '', location.pathname + (location.hash || '#us/watch'));
+      }
+    } catch (e) { /* ignore */ }
     const r = parseHash();
     state.market = r.market;
     state.view = r.view;
